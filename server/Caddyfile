@@ -1,0 +1,19 @@
+# opengent Caddyfile — TLS termination + path-based routing to per-user
+# ttyd instances relayed through frps. Caddy auto-provisions Let's Encrypt
+# certs for the domain below; just point its A record at this VPS first.
+
+{$OPENGENT_DOMAIN} {
+    # Registration API (install.sh POSTs here to claim a slug + port).
+    handle /api/* {
+        uri strip_prefix /api
+        reverse_proxy 127.0.0.1:8790
+    }
+
+    # One file per registered user, written by register-api on signup:
+    #   handle /<slug>/* { reverse_proxy 127.0.0.1:<port> }
+    import /etc/opengent/routes/*.caddy
+
+    handle {
+        respond "opengent relay — https://github.com/Osaka-Research/opengent" 200
+    }
+}

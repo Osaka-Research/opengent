@@ -1,0 +1,154 @@
+#!/usr/bin/env bash
+# opengent client — turns your local terminal into https://SERVER/USERNAME
+#
+# Usage:
+#   curl -sL https://SERVER/install.sh | OPENGENT_SERVER=example.com OPENGENT_FRP_TOKEN=xxx bash -s -- USERNAME
+#   ./install.sh USERNAME          # or run locally after cloning
+#   ./install.sh stop USERNAME     # stop sharing + release the slug
+#
+# Env:
+#   OPENGENT_SERVER     domain of the opengent relay (required)
+#   OPENGENT_FRP_TOKEN  shared frp auth token, given to you by the admin (required)
+#   OPENGENT_SHELL      command to run in the shared terminal (default: your $SHELL)
+
+set -euo pipefail
+
+FRP_VERSION="0.68.0"
+STATE_ROOT="${OPENGENT_HOME:-$HOME/.opengent}"
+
+die() { echo "error: $*" >&2; exit 1; }
+
+[ "${1:-}" = "stop" ] && { shift; ACTION=stop; } || ACTION=start
+USERNAME="${1:-}"
+[ -n "$USERNAME" ] || die "usage: install.sh [stop] USERNAME"
+[[ "$USERNAME" =~ ^[a-z0-9][a-z0-9-]{2,19}$ ]] || die "username: 3-20 chars, lowercase letters/digits/hyphen"
+
+SERVER="${OPENGENT_SERVER:?set OPENGENT_SERVER=yourdomain.com}"
+STATE_DIR="$STATE_ROOT/$USERNAME"
+
+if [ "$ACTION" = stop ]; then
+  echo "==> stopping $USERNAME"
+  [ -f "$STATE_DIR/ttyd.pid" ] && kill "$(cat "$STATE_DIR/ttyd.pid")" 2>/dev/null
+  [ -f "$STATE_DIR/frpc.pid" ] && kill "$(cat "$STATE_DIR/frpc.pid")" 2>/dev/null
+  if [ -f "$STATE_DIR/meta.json" ]; then
+    TOKEN=$(grep -o '"revokeToken":"[^"]*"' "$STATE_DIR/meta.json" | cut -d'"' -f4)
+    curl -sf -X DELETE "https://$SERVER/api/register/$USERNAME" \
+      -H 'Content-Type: application/json' -d "{\"token\":\"$TOKEN\"}" >/dev/null || true
+  fi
+  rm -rf "$STATE_DIR"
+  echo "==> stopped. slug released."
+  exit 0
+fi
+
+FRP_TOKEN="${OPENGENT_FRP_TOKEN:?set OPENGENT_FRP_TOKEN=<token from admin>}"
+mkdir -p "$STATE_DIR"
+
+# --- detect platform ---------------------------------------------------
+OS="$(uname -s)"
+ARCH="$(uname -m)"
+IS_TERMUX=0
+[ -n "${TERMUX_VERSION:-}" ] && IS_TERMUX=1
+
+case "$ARCH" in
+  x86_64|amd64) FRP_ARCH=amd64 ;;
+  aarch64|arm64) FRP_ARCH=arm64 ;;
+  *) die "unsupported arch: $ARCH (install ttyd + frpc manually, see README)" ;;
+esac
+
+if [ "$IS_TERMUX" = 1 ]; then
+  FRP_OS=android
+  PKG_INSTALL="pkg install -y"
+elif [ "$OS" = "Linux" ]; then
+  FRP_OS=linux
+  PKG_INSTALL="sudo apt-get install -y"
+elif [ "$OS" = "Darwin" ]; then
+  FRP_OS=darwin
+  PKG_INSTALL="brew install"
+else
+  die "unsupported OS: $OS"
+fi
+
+# --- install ttyd --------------------------------------------------------
+if ! command -v ttyd >/dev/null; then
+  echo "==> installing ttyd"
+  if [ "$IS_TERMUX" = 1 ]; then pkg install -y ttyd
+  elif [ "$OS" = "Linux" ]; then sudo apt-get update -qq && sudo apt-get install -y ttyd
+  elif [ "$OS" = "Darwin" ]; then brew install ttyd
+  fi
+fi
+command -v ttyd >/dev/null || die "ttyd install failed — install manually: $PKG_INSTALL ttyd"
+
+# --- install frpc ---------------------------------------------------------
+FRPC_BIN="$STATE_ROOT/bin/frpc"
+if [ ! -x "$FRPC_BIN" ]; then
+  echo "==> downloading frpc ${FRP_VERSION} ($FRP_OS/$FRP_ARCH)"
+  mkdir -p "$STATE_ROOT/bin" "$STATE_ROOT/tmp"
+  URL="https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_${FRP_OS}_${FRP_ARCH}.tar.gz"
+  if ! curl -sL "$URL" -o "$STATE_ROOT/tmp/frp.tar.gz"; then
+    [ "$FRP_OS" = android ] || die "download failed: $URL"
+    echo "==> no android build, falling back to linux/$FRP_ARCH"
+    FRP_OS=linux
+    curl -sL "https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_${FRP_OS}_${FRP_ARCH}.tar.gz" \
+      -o "$STATE_ROOT/tmp/frp.tar.gz" || die "download failed"
+  fi
+  tar xzf "$STATE_ROOT/tmp/frp.tar.gz" -C "$STATE_ROOT/tmp"
+  cp "$STATE_ROOT/tmp/frp_${FRP_VERSION}_${FRP_OS}_${FRP_ARCH}/frpc" "$FRPC_BIN"
+  chmod +x "$FRPC_BIN"
+  rm -rf "$STATE_ROOT/tmp"
+fi
+
+# --- register with the relay ----------------------------------------------
+echo "==> registering '$USERNAME' with $SERVER"
+RESP="$(curl -sf -X POST "https://$SERVER/api/register" \
+  -H 'Content-Type: application/json' -d "{\"username\":\"$USERNAME\"}")" \
+  || die "registration failed — username taken, or server unreachable"
+
+PORT="$(echo "$RESP" | grep -o '"port":[0-9]*' | grep -o '[0-9]*')"
+REVOKE_TOKEN="$(echo "$RESP" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)"
+[ -n "$PORT" ] || die "bad response from server: $RESP"
+echo "{\"revokeToken\":\"$REVOKE_TOKEN\",\"port\":$PORT}" > "$STATE_DIR/meta.json"
+
+# --- credentials -----------------------------------------------------------
+PASS="$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)"
+echo "$PASS" > "$STATE_DIR/password"
+chmod 600 "$STATE_DIR/password"
+
+# --- write frpc config + start ---------------------------------------------
+cat > "$STATE_DIR/frpc.toml" <<EOF
+serverAddr = "$SERVER"
+serverPort = 7000
+auth.method = "token"
+auth.token = "$FRP_TOKEN"
+
+[[proxies]]
+name = "$USERNAME"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = $PORT
+remotePort = $PORT
+EOF
+
+echo "==> starting frpc"
+nohup "$FRPC_BIN" -c "$STATE_DIR/frpc.toml" >"$STATE_DIR/frpc.log" 2>&1 &
+echo $! > "$STATE_DIR/frpc.pid"
+disown 2>/dev/null || true
+
+echo "==> starting ttyd on :$PORT"
+nohup ttyd -p "$PORT" -b "/$USERNAME" -c "$USERNAME:$PASS" "${OPENGENT_SHELL:-$SHELL}" \
+  >"$STATE_DIR/ttyd.log" 2>&1 &
+echo $! > "$STATE_DIR/ttyd.pid"
+disown 2>/dev/null || true
+
+sleep 1
+cat <<EOF
+
+==> your terminal is live:
+
+    https://$SERVER/$USERNAME/
+
+    user: $USERNAME
+    pass: $PASS
+
+Stop sharing:
+    OPENGENT_SERVER=$SERVER ./install.sh stop $USERNAME
+EOF

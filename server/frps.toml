@@ -1,0 +1,20 @@
+# opengent frp server config (frp >= 0.52 toml format).
+# Runs the frp relay that lets NAT'd clients (phones, laptops with no public
+# IP) punch a TCP proxy out to this VPS. Caddy is the only thing that should
+# ever be reachable from the public internet on 80/443 — frps proxies bind
+# to 127.0.0.1 only (proxyBindAddr below), so Caddy is the sole path in.
+
+bindPort = 7000
+
+auth.method = "token"
+auth.token = "CHANGE_ME_SHARED_SECRET"
+
+# Must match OPENGENT_PORT_MIN/MAX in the register-api's env.
+allowPorts = [{ start = 21000, end = 21999 }]
+
+# Keep client TCP proxies off the public interface — only Caddy (same host)
+# reverse-proxies to them.
+proxyBindAddr = "127.0.0.1"
+
+webServer.addr = "127.0.0.1"
+webServer.port = 7500
