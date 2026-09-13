@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>opengent — turn any terminal into a public URL</title>
+<meta name="description" content="opengent: share any terminal at domain.com/username, no public IP or port-forwarding needed. Self-hosted, open source, MCP-ready.">
+<style>
+  :root {
+    --bg: #fbfaf8;
+    --bg-panel: #ffffff;
+    --bg-code: #f3f1ec;
+    --text: #1c1b19;
+    --text-dim: #625f58;
+    --border: #e4e0d8;
+    --accent: #b5541e;
+    --accent-soft: #fbe9dd;
+    --green: #3f7d4a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161513;
+      --bg-panel: #1e1c19;
+      --bg-code: #100f0e;
+      --text: #ece8e0;
+      --text-dim: #a39d90;
+      --border: #332f28;
+      --accent: #e2812f;
+      --accent-soft: #3a2415;
+      --green: #79c88a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #161513;
+    --bg-panel: #1e1c19;
+    --bg-code: #100f0e;
+    --text: #ece8e0;
+    --text-dim: #a39d90;
+    --border: #332f28;
+    --accent: #e2812f;
+    --accent-soft: #3a2415;
+    --green: #79c88a;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  main {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 64px 20px 96px;
+  }
+  h1, h2, h3 { line-height: 1.25; }
+  h1 { font-size: 2.1rem; margin: 0 0 8px; letter-spacing: -0.02em; }
+  h2 { font-size: 1.3rem; margin: 56px 0 16px; }
+  p { color: var(--text-dim); margin: 0 0 16px; }
+  a { color: var(--accent); }
+  .tag {
+    display: inline-block;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 3px 10px;
+    border-radius: 999px;
+    margin-bottom: 18px;
+  }
+  .tagline { font-size: 1.1rem; color: var(--text-dim); max-width: 52ch; }
+
+  .cta-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 24px; }
+  .btn {
+    display: inline-block;
+    padding: 10px 18px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 0.92rem;
+    border: 1px solid var(--border);
+  }
+  .btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-ghost { color: var(--text); }
+
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    font-size: 0.86rem;
+    line-height: 1.55;
+  }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  p code, li code {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 1px 6px;
+    font-size: 0.88em;
+    color: var(--text);
+  }
+
+  .diagram {
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+    border-radius: 12px;
+    padding: 20px;
+    overflow-x: auto;
+  }
+  .diagram pre { border: none; background: none; padding: 0; margin: 0; }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 14px;
+  }
+  .card {
+    border: 1px solid var(--border);
+    background: var(--bg-panel);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .card h3 { margin: 0 0 6px; font-size: 0.98rem; }
+  .card p { margin: 0; font-size: 0.9rem; }
+
+  .callout {
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    background: var(--bg-panel);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 18px 0;
+  }
+  .callout p:last-child { margin-bottom: 0; }
+  .callout ul { color: var(--text-dim); margin: 8px 0 0; padding-left: 20px; }
+  .callout li { margin-bottom: 6px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-dim); font-weight: 600; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.03em; }
+
+  footer {
+    margin-top: 72px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  footer a { color: var(--text-dim); }
+</style>
+</head>
+<body>
+<main>
+
+  <span class="tag">Osaka-Research · open source</span>
+  <h1>opengent</h1>
+  <p class="tagline">
+    Turn any terminal — phone, laptop, CI box, agent sandbox — into
+    <code>yourdomain.com/username</code>. No public IP, no port-forwarding,
+    no third-party tunnel subscription.
+  </p>
+
+  <div class="cta-row">
+    <a class="btn btn-primary" href="https://github.com/Osaka-Research/opengent">View on GitHub</a>
+    <a class="btn btn-ghost" href="#quickstart">Quickstart</a>
+    <a class="btn btn-ghost" href="#mcp">MCP tool</a>
+  </div>
+
+  <h2 id="quickstart">Quickstart</h2>
+  <p>Ask your admin for a domain + frp token, then:</p>
+  <pre><code>curl -sL https://yourdomain.com/install.sh \
+  | OPENGENT_SERVER=yourdomain.com OPENGENT_FRP_TOKEN=&lt;given-by-admin&gt; \
+    bash -s -- yourname</code></pre>
+  <pre><code>your terminal is live:
+
+    https://yourdomain.com/yourname/
+
+    user: yourname
+    pass: &lt;generated&gt;</code></pre>
+  <p>Stop sharing any time: <code>OPENGENT_SERVER=yourdomain.com ./install.sh stop yourname</code></p>
+
+  <h2>How it works</h2>
+  <div class="diagram">
+<pre><code> client device                    VPS (public IP + domain)
+ ┌─────────────┐                  ┌───────────────────────────────┐
+ │ ttyd        │   frpc  ──tcp──▶ │ frps  ──▶  Caddy  ──▶  routes  │
+ │ (local pty) │   tunnel         │ (relay)    (TLS)     (/user)   │
+ └─────────────┘                  └───────────────────────────────┘
+                                                 │
+                                     https://domain.com/yourname
+</code></pre>
+  </div>
+  <p style="margin-top:14px">
+    <strong>ttyd</strong> serves one password-protected pty over HTTP/WebSocket, locally.
+    <strong>frp</strong> punches a TCP tunnel out through NAT/CGNAT — works from a phone
+    on mobile data. <strong>Caddy</strong> terminates TLS on the VPS and routes each
+    user's path to their tunneled port. A tiny, dependency-free <strong>register-api</strong>
+    allocates the port and writes the route on signup.
+  </p>
+
+  <h2>Why</h2>
+  <div class="cards">
+    <div class="card">
+      <h3>No public IP needed</h3>
+      <p>Runs from behind NAT or CGNAT — a phone, a home network, a sandboxed CI runner.</p>
+    </div>
+    <div class="card">
+      <h3>Per-user isolation</h3>
+      <p>Own ttyd process, own port, own path, own credentials. No shared shell.</p>
+    </div>
+    <div class="card">
+      <h3>Self-hosted</h3>
+      <p>Your VPS, your domain, your TLS certs. No recurring tunnel-service subscription.</p>
+    </div>
+    <div class="card">
+      <h3>Agent-ready</h3>
+      <p>Ships as an MCP server so an AI agent can share its own terminal on demand.</p>
+    </div>
+  </div>
+
+  <h2 id="mcp">MCP server</h2>
+  <p>Lets an agent (Claude Code, Claude Desktop, etc.) share its own terminal without shelling out manually.</p>
+  <table>
+    <tr><th>Tool</th><th>Does</th></tr>
+    <tr><td><code>opengent_share</code></td><td>start sharing, returns URL + credentials</td></tr>
+    <tr><td><code>opengent_stop</code></td><td>stop sharing, release the slug</td></tr>
+    <tr><td><code>opengent_list</code></td><td>list shares on this machine + running status</td></tr>
+  </table>
+  <pre><code>{
+  "mcpServers": {
+    "opengent": {
+      "command": "node",
+      "args": ["/path/to/opengent/mcp/index.js"],
+      "env": {
+        "OPENGENT_SERVER": "yourdomain.com",
+        "OPENGENT_FRP_TOKEN": "&lt;given-by-admin&gt;"
+      }
+    }
+  }
+}</code></pre>
+
+  <h2>Run your own relay</h2>
+  <pre><code>git clone https://github.com/Osaka-Research/opengent
+cd opengent/server
+sudo OPENGENT_DOMAIN=yourdomain.com ./setup.sh</code></pre>
+  <p>Installs Caddy, frps, and the register-api as systemd services on a fresh Debian/Ubuntu VPS whose domain already points at it.</p>
+
+  <h2>Before you expose this to strangers</h2>
+  <div class="callout">
+    <p>opengent is a minimal scaffold, not a hardened multi-tenant platform:</p>
+    <ul>
+      <li><code>OPENGENT_FRP_TOKEN</code> is one shared secret for every client — rotate it if it leaks.</li>
+      <li>the registration endpoint is unauthenticated — anyone reaching it can claim a free username.</li>
+      <li>ttyd basic auth isn't brute-force rate-limited by default.</li>
+      <li>whoever opens the link gets a real shell as whoever ran <code>install.sh</code> — treat it like a password.</li>
+    </ul>
+  </div>
+
+  <footer>
+    <span>MIT licensed · Osaka-Research</span>
+    <a href="https://github.com/Osaka-Research/opengent">github.com/Osaka-Research/opengent</a>
+  </footer>
+
+</main>
+</body>
+</html>
