@@ -75,6 +75,41 @@ automatically, pinned to a fixed version, into `~/.opengent/bin`.
 Run it again with `stop` to kill the local processes and free the slug on
 the server.
 
+## MCP server
+
+`mcp/` exposes the same functionality as MCP tools, so an AI agent (Claude
+Code, Claude Desktop, etc.) can share its own terminal on demand:
+
+- `opengent_share(username, server?, frpToken?)` — start sharing, returns the URL + credentials
+- `opengent_stop(username, server?)` — stop sharing, release the slug
+- `opengent_list()` — list shares started on this machine and whether they're still running
+
+Install and register it:
+
+```
+cd opengent/mcp
+npm install
+```
+
+```json
+{
+  "mcpServers": {
+    "opengent": {
+      "command": "node",
+      "args": ["/path/to/opengent/mcp/index.js"],
+      "env": {
+        "OPENGENT_SERVER": "yourdomain.com",
+        "OPENGENT_FRP_TOKEN": "<given-by-admin>"
+      }
+    }
+  }
+}
+```
+
+It's a thin wrapper — every tool call just drives `install.sh` under the
+hood, so behavior and requirements (ttyd, frpc, etc.) are identical to the
+CLI flow above.
+
 ## Security notes
 
 This is a minimal scaffold, not a hardened multi-tenant platform. Before

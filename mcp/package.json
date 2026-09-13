@@ -1,0 +1,16 @@
+{
+  "name": "@osaka-research/opengent-mcp",
+  "version": "0.1.0",
+  "description": "MCP server wrapping opengent — lets an agent share its own terminal as a public URL",
+  "type": "module",
+  "bin": {
+    "opengent-mcp": "./index.js"
+  },
+  "main": "index.js",
+  "license": "MIT",
+  "repository": "github:Osaka-Research/opengent",
+  "dependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "zod": "^4.0.0"
+  }
+}
