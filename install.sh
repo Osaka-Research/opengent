@@ -2,14 +2,16 @@
 # opengent client — turns your local terminal into https://SERVER/USERNAME
 #
 # Usage:
-#   curl -sL https://SERVER/install.sh | OPENGENT_SERVER=example.com OPENGENT_FRP_TOKEN=xxx bash -s -- USERNAME
+#   curl -sL https://SERVER/install.sh \
+#     | OPENGENT_SERVER=example.com OPENGENT_FRP_TOKEN=xxx OPENGENT_ACCOUNT_TOKEN=yyy bash -s -- USERNAME
 #   ./install.sh USERNAME          # or run locally after cloning
 #   ./install.sh stop USERNAME     # stop sharing + release the slug
 #
 # Env:
-#   OPENGENT_SERVER     domain of the opengent relay (required)
-#   OPENGENT_FRP_TOKEN  shared frp auth token, given to you by the admin (required)
-#   OPENGENT_SHELL      command to run in the shared terminal (default: your $SHELL)
+#   OPENGENT_SERVER        domain of the opengent relay (required)
+#   OPENGENT_FRP_TOKEN     shared frp connection token, given to you by the admin (required)
+#   OPENGENT_ACCOUNT_TOKEN your personal account token, given to you by the admin (required)
+#   OPENGENT_SHELL         command to run in the shared terminal (default: your $SHELL)
 
 set -euo pipefail
 
@@ -41,6 +43,7 @@ if [ "$ACTION" = stop ]; then
 fi
 
 FRP_TOKEN="${OPENGENT_FRP_TOKEN:?set OPENGENT_FRP_TOKEN=<token from admin>}"
+ACCOUNT_TOKEN="${OPENGENT_ACCOUNT_TOKEN:?set OPENGENT_ACCOUNT_TOKEN=<your account token from admin>}"
 mkdir -p "$STATE_DIR"
 
 # --- detect platform ---------------------------------------------------
@@ -99,9 +102,15 @@ fi
 
 # --- register with the relay ----------------------------------------------
 echo "==> registering '$USERNAME' with $SERVER"
+# If we've registered this slug before (meta.json survived a restart),
+# send its token back so the server can tell a legit retry apart from
+# someone else trying to grab our slug.
+PREV_TOKEN=""
+[ -f "$STATE_DIR/meta.json" ] && PREV_TOKEN="$(grep -o '"revokeToken":"[^"]*"' "$STATE_DIR/meta.json" | cut -d'"' -f4)"
 RESP="$(curl -sf -X POST "https://$SERVER/api/register" \
-  -H 'Content-Type: application/json' -d "{\"username\":\"$USERNAME\"}")" \
-  || die "registration failed — username taken, or server unreachable"
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$USERNAME\",\"authToken\":\"$ACCOUNT_TOKEN\",\"token\":\"$PREV_TOKEN\"}")" \
+  || die "registration failed — username taken, bad token, or server unreachable"
 
 PORT="$(echo "$RESP" | grep -o '"port":[0-9]*' | grep -o '[0-9]*')"
 REVOKE_TOKEN="$(echo "$RESP" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)"
@@ -109,7 +118,7 @@ REVOKE_TOKEN="$(echo "$RESP" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)"
 echo "{\"revokeToken\":\"$REVOKE_TOKEN\",\"port\":$PORT}" > "$STATE_DIR/meta.json"
 
 # --- credentials -----------------------------------------------------------
-PASS="$(head -c 12 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)"
+PASS="$(head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)"
 echo "$PASS" > "$STATE_DIR/password"
 chmod 600 "$STATE_DIR/password"
 
@@ -133,8 +142,8 @@ nohup "$FRPC_BIN" -c "$STATE_DIR/frpc.toml" >"$STATE_DIR/frpc.log" 2>&1 &
 echo $! > "$STATE_DIR/frpc.pid"
 disown 2>/dev/null || true
 
-echo "==> starting ttyd on :$PORT"
-nohup ttyd -p "$PORT" -b "/$USERNAME" -c "$USERNAME:$PASS" "${OPENGENT_SHELL:-$SHELL}" \
+echo "==> starting ttyd on 127.0.0.1:$PORT"
+nohup ttyd -p "$PORT" -i 127.0.0.1 -b "/$USERNAME" -c "$USERNAME:$PASS" "${OPENGENT_SHELL:-$SHELL}" \
   >"$STATE_DIR/ttyd.log" 2>&1 &
 echo $! > "$STATE_DIR/ttyd.pid"
 disown 2>/dev/null || true

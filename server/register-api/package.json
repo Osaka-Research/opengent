@@ -1,0 +1,15 @@
+{
+  "name": "opengent-register-api",
+  "version": "0.2.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "migrate": "psql \"$DATABASE_URL\" -f schema.sql"
+  },
+  "dependencies": {
+    "pg": "^8.13.0",
+    "redis": "^4.7.0"
+  }
+}

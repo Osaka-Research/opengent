@@ -1,66 +1,88 @@
 #!/usr/bin/env node
-// opengent registration API — zero dependencies (Node http + fs only).
+// opengent registration API — Postgres-backed state, Redis-backed rate
+// limiting + route cache. Stateless: run as many replicas of this behind
+// a load balancer as you want, they all read/write the same DB.
 //
-// Allocates a slug + local port for a new terminal-share client, writes a
-// Caddy route file so `domain.com/<slug>` reverse-proxies to that port, and
-// reloads Caddy. Meant to run on the VPS, behind Caddy itself (reverse
-// proxied at /api/register), or directly on its own port.
-//
-// State is a flat JSON file — fine for the expected scale (dozens to low
-// hundreds of concurrent users). Swap for a real DB if that stops being true.
+// Allocates a slug + port on the least-loaded relay node, for an account
+// authenticated by its own token (see `users` table, provisioned with
+// create-user.sh) — not a single fleet-wide shared secret, so one account
+// can be deactivated or quota-limited without touching anyone else's.
+// Routing to that port happens in the gateway service (server/gateway),
+// which reads the `route:<slug>` Redis key this writes/deletes — no Caddy
+// config change and no reload on signup/teardown.
 
 const http = require('http');
-const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
-const { execFile } = require('child_process');
+const { Pool } = require('pg');
+const { createClient } = require('redis');
 
-const STATE_FILE = process.env.OPENGENT_STATE || path.join(__dirname, 'state.json');
-const ROUTES_DIR = process.env.OPENGENT_ROUTES_DIR || '/etc/opengent/routes';
-const PORT_MIN = parseInt(process.env.OPENGENT_PORT_MIN || '21000', 10);
-const PORT_MAX = parseInt(process.env.OPENGENT_PORT_MAX || '21999', 10);
 const LISTEN_PORT = parseInt(process.env.OPENGENT_API_PORT || '8790', 10);
-const CADDY_RELOAD_CMD = process.env.OPENGENT_CADDY_RELOAD || 'systemctl reload caddy';
 const RESERVED_SLUGS = new Set(['api', 'admin', 'register', 'health', 'assets', 'static']);
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{2,19}$/;
 
-function loadState() {
+const DATABASE_URL = process.env.DATABASE_URL;
+const REDIS_URL = process.env.REDIS_URL;
+if (!DATABASE_URL) { console.error('DATABASE_URL not set'); process.exit(1); }
+if (!REDIS_URL) { console.error('REDIS_URL not set'); process.exit(1); }
+
+const RATE_LIMIT_WINDOW_S = 60;
+const RATE_LIMIT_MAX = 10;
+const SWEEP_INTERVAL_MS = 5 * 60_000;
+const SWEEP_GRACE_MS = 3 * 60_000;
+
+const pool = new Pool({ connectionString: DATABASE_URL });
+const redis = createClient({ url: REDIS_URL });
+redis.on('error', (e) => console.error('redis error:', e.message));
+
+function sha256(s) {
+  return crypto.createHash('sha256').update(s).digest('hex');
+}
+
+function safeEqual(a, b) {
+  const bufA = Buffer.from(String(a));
+  const bufB = Buffer.from(String(b));
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+function clientIp(req) {
+  const fwd = req.headers['x-forwarded-for'];
+  if (fwd) return fwd.split(',')[0].trim();
+  return req.socket.remoteAddress;
+}
+
+async function rateLimited(ip) {
   try {
-    return JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
-  } catch {
-    return { users: {} }; // slug -> { port, token, createdAt }
+    const key = `ratelimit:register:${ip}`;
+    const count = await redis.incr(key);
+    if (count === 1) await redis.expire(key, RATE_LIMIT_WINDOW_S);
+    return count > RATE_LIMIT_MAX;
+  } catch (e) {
+    console.error('rate-limit check failed, allowing request:', e.message);
+    return false; // fail open — a Redis blip shouldn't take down signups
   }
 }
 
-function saveState(state) {
-  fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
+// Looks an account up by its token (hashed, so raw tokens never sit in
+// the DB or logs). This is the auth boundary for POST /register — each
+// account gets its own token instead of one shared fleet-wide secret, so
+// one can be deactivated/quota-limited without touching anyone else's.
+async function authenticateAccount(rawToken) {
+  const { rows } = await pool.query('SELECT * FROM users WHERE token_hash = $1 AND active', [sha256(rawToken)]);
+  return rows[0] || null;
 }
 
-function allocatePort(state) {
-  const used = new Set(Object.values(state.users).map((u) => u.port));
-  for (let p = PORT_MIN; p <= PORT_MAX; p++) {
-    if (!used.has(p)) return p;
-  }
-  throw new Error('no free ports left in range');
+async function countTunnelsForUser(userId) {
+  const { rows } = await pool.query('SELECT COUNT(*) FROM tunnels WHERE owner_user_id = $1', [userId]);
+  return Number(rows[0].count);
 }
 
-function writeCaddyRoute(slug, port) {
-  fs.mkdirSync(ROUTES_DIR, { recursive: true });
-  const block = `handle /${slug}/* {\n    reverse_proxy 127.0.0.1:${port}\n}\n`;
-  fs.writeFileSync(path.join(ROUTES_DIR, `${slug}.caddy`), block);
+async function setRouteCache(slug, internalHost, port) {
+  try { await redis.set(`route:${slug}`, JSON.stringify({ host: internalHost, port })); } catch (e) { console.error('route cache set failed:', e.message); }
 }
 
-function removeCaddyRoute(slug) {
-  const f = path.join(ROUTES_DIR, `${slug}.caddy`);
-  if (fs.existsSync(f)) fs.unlinkSync(f);
-}
-
-function reloadCaddy(cb) {
-  const [cmd, ...args] = CADDY_RELOAD_CMD.split(' ');
-  execFile(cmd, args, (err, stdout, stderr) => {
-    if (err) console.error('caddy reload failed:', stderr || err.message);
-    cb();
-  });
+async function delRouteCache(slug) {
+  try { await redis.del(`route:${slug}`); } catch (e) { console.error('route cache del failed:', e.message); }
 }
 
 function json(res, code, obj) {
@@ -75,68 +97,224 @@ function readBody(req, cb) {
   req.on('end', () => cb(data));
 }
 
+// Picks the active relay node with the most free port capacity, allocates
+// a free port on it via retry-on-conflict (safe under concurrent
+// register-api replicas: the DB's UNIQUE(relay_node_id, port) constraint
+// is the actual race guard, not this selection query).
+async function allocateOnLeastLoadedNode() {
+  const { rows } = await pool.query(`
+    SELECT rn.id, rn.host, rn.internal_host, rn.port_min, rn.port_max,
+           (rn.port_max - rn.port_min + 1) - COUNT(t.slug) AS free
+    FROM relay_nodes rn
+    LEFT JOIN tunnels t ON t.relay_node_id = rn.id
+    WHERE rn.active
+    GROUP BY rn.id
+    HAVING (rn.port_max - rn.port_min + 1) - COUNT(t.slug) > 0
+    ORDER BY free DESC
+    LIMIT 1
+  `);
+  if (!rows.length) throw new Error('no relay node with free capacity');
+  return rows[0];
+}
+
+async function firstFreePort(nodeId, portMin, portMax) {
+  const { rows } = await pool.query('SELECT port FROM tunnels WHERE relay_node_id = $1', [nodeId]);
+  const used = new Set(rows.map((r) => r.port));
+  for (let p = portMin; p <= portMax; p++) {
+    if (!used.has(p)) return p;
+  }
+  return null;
+}
+
+async function registerSlug(slug, ownerUserId) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const node = await allocateOnLeastLoadedNode();
+    const port = await firstFreePort(node.id, node.port_min, node.port_max);
+    if (port == null) continue; // node filled up between select and here, retry
+
+    const rawToken = crypto.randomBytes(16).toString('hex');
+    try {
+      await pool.query(
+        `INSERT INTO tunnels (slug, relay_node_id, owner_user_id, port, token_hash) VALUES ($1, $2, $3, $4, $5)`,
+        [slug, node.id, ownerUserId, port, sha256(rawToken)]
+      );
+      return { slug, port, token: rawToken, host: node.host, internalHost: node.internal_host };
+    } catch (e) {
+      if (e.code === '23505') continue; // unique_violation — lost the race, retry
+      throw e;
+    }
+  }
+  throw new Error('could not allocate a port after retries');
+}
+
 const server = http.createServer((req, res) => {
   if (req.method === 'GET' && req.url === '/health') {
     return json(res, 200, { ok: true });
   }
 
   if (req.method === 'POST' && req.url === '/register') {
-    return readBody(req, (raw) => {
-      let body;
-      try { body = JSON.parse(raw || '{}'); } catch { return json(res, 400, { error: 'bad json' }); }
+    return (async () => {
+      if (await rateLimited(clientIp(req))) return json(res, 429, { error: 'too many requests, slow down' });
 
-      const slug = String(body.username || '').toLowerCase().trim();
-      if (!SLUG_RE.test(slug)) {
-        return json(res, 400, { error: 'username must be 3-20 chars, lowercase letters/digits/hyphen, not starting with hyphen' });
-      }
-      if (RESERVED_SLUGS.has(slug)) {
-        return json(res, 409, { error: 'username reserved' });
-      }
+      readBody(req, async (raw) => {
+        let body;
+        try { body = JSON.parse(raw || '{}'); } catch { return json(res, 400, { error: 'bad json' }); }
 
-      const state = loadState();
+        if (!body.authToken) return json(res, 401, { error: 'missing authToken' });
+        const account = await authenticateAccount(body.authToken);
+        if (!account) return json(res, 401, { error: 'bad, unknown, or deactivated authToken' });
 
-      // Re-registration: same slug returns its existing assignment instead
-      // of erroring, so a client can safely retry / reconnect.
-      if (state.users[slug]) {
-        const u = state.users[slug];
-        return json(res, 200, { slug, port: u.port, token: u.token, reused: true });
-      }
+        const slug = String(body.username || '').toLowerCase().trim();
+        if (!SLUG_RE.test(slug)) {
+          return json(res, 400, { error: 'username must be 3-20 chars, lowercase letters/digits/hyphen, not starting with hyphen' });
+        }
+        if (RESERVED_SLUGS.has(slug)) {
+          return json(res, 409, { error: 'username reserved' });
+        }
 
-      let port;
-      try {
-        port = allocatePort(state);
-      } catch (e) {
-        return json(res, 503, { error: e.message });
-      }
+        try {
+          const { rows } = await pool.query(
+            `SELECT t.*, rn.internal_host FROM tunnels t
+             JOIN relay_nodes rn ON rn.id = t.relay_node_id
+             WHERE t.slug = $1`,
+            [slug]
+          );
+          const existing = rows[0];
 
-      const token = crypto.randomBytes(16).toString('hex');
-      state.users[slug] = { port, token, createdAt: new Date().toISOString() };
-      saveState(state);
-      writeCaddyRoute(slug, port);
-      reloadCaddy(() => json(res, 201, { slug, port, token, reused: false }));
-    });
+          if (existing) {
+            // Re-registration only succeeds if the caller proves ownership
+            // with the token they were issued last time — otherwise this
+            // would leak an existing user's revoke token to anyone who
+            // guesses their slug.
+            if (body.token && safeEqual(sha256(body.token), existing.token_hash)) {
+              await pool.query('UPDATE tunnels SET last_seen = now() WHERE slug = $1', [slug]);
+              await setRouteCache(slug, existing.internal_host, existing.port); // re-affirm in case the cache entry expired/was evicted
+              return json(res, 200, { slug, port: existing.port, token: body.token, reused: true });
+            }
+            return json(res, 409, { error: 'username taken' });
+          }
+
+          const used = await countTunnelsForUser(account.id);
+          if (used >= account.max_slugs) {
+            return json(res, 403, { error: `account quota reached (${account.max_slugs} slugs)` });
+          }
+
+          const result = await registerSlug(slug, account.id);
+          await setRouteCache(result.slug, result.internalHost, result.port);
+          return json(res, 201, { slug: result.slug, port: result.port, token: result.token, reused: false });
+        } catch (e) {
+          console.error('register failed:', e.message);
+          return json(res, 503, { error: e.message });
+        }
+      });
+    })();
   }
 
   if (req.method === 'DELETE' && req.url.startsWith('/register/')) {
     const slug = req.url.slice('/register/'.length).toLowerCase();
-    const state = loadState();
-    if (!state.users[slug]) return json(res, 404, { error: 'not found' });
-    // Caller must present the token they were issued on registration.
-    return readBody(req, (raw) => {
-      let body;
-      try { body = JSON.parse(raw || '{}'); } catch { body = {}; }
-      if (body.token !== state.users[slug].token) return json(res, 403, { error: 'bad token' });
-      delete state.users[slug];
-      saveState(state);
-      removeCaddyRoute(slug);
-      reloadCaddy(() => json(res, 200, { ok: true }));
-    });
+    return (async () => {
+      try {
+        const { rows } = await pool.query('SELECT * FROM tunnels WHERE slug = $1', [slug]);
+        const existing = rows[0];
+        if (!existing) return json(res, 404, { error: 'not found' });
+
+        readBody(req, async (raw) => {
+          let body;
+          try { body = JSON.parse(raw || '{}'); } catch { body = {}; }
+          if (!body.token || !safeEqual(sha256(body.token), existing.token_hash)) {
+            return json(res, 403, { error: 'bad token' });
+          }
+          await pool.query('DELETE FROM tunnels WHERE slug = $1', [slug]);
+          await delRouteCache(slug);
+          return json(res, 200, { ok: true });
+        });
+      } catch (e) {
+        console.error('deregister failed:', e.message);
+        return json(res, 503, { error: e.message });
+      }
+    })();
   }
 
   json(res, 404, { error: 'not found' });
 });
 
-server.listen(LISTEN_PORT, () => {
-  console.log(`opengent register-api listening on :${LISTEN_PORT}`);
-  console.log(`routes dir: ${ROUTES_DIR}  port range: ${PORT_MIN}-${PORT_MAX}`);
-});
+// --- stale-slug sweep -------------------------------------------------
+// A client that crashes/loses network without running `stop` never frees
+// its slug+port. Periodically ask each relay node's frps which proxies
+// are actually connected and drop any tunnel row that isn't (past a grace
+// period, so a slug isn't killed in the gap between registering and frpc
+// connecting).
+function fetchConnectedProxyNames(node) {
+  return new Promise((resolve) => {
+    const [host, portStr] = node.frps_api_addr.split(':');
+    const auth = Buffer.from(`${node.frps_api_user}:${node.frps_api_pass}`).toString('base64');
+    const req = http.get(
+      { host, port: Number(portStr), path: '/api/proxy/tcp', headers: { Authorization: `Basic ${auth}` }, timeout: 5000 },
+      (res) => {
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            resolve(new Set((parsed.proxies || []).map((p) => p.name)));
+          } catch (e) {
+            console.error(`sweep: bad frps API response from node ${node.id}:`, e.message);
+            resolve(null);
+          }
+        });
+      }
+    );
+    req.on('error', (e) => { console.error(`sweep: node ${node.id} frps API unreachable:`, e.message); resolve(null); });
+    req.on('timeout', () => req.destroy());
+  });
+}
+
+async function sweepStaleSlugs() {
+  let nodes;
+  try {
+    nodes = (await pool.query('SELECT * FROM relay_nodes WHERE active')).rows;
+  } catch (e) {
+    console.error('sweep: could not load relay nodes:', e.message);
+    return;
+  }
+
+  for (const node of nodes) {
+    const connected = await fetchConnectedProxyNames(node);
+    if (!connected) continue; // node's frps API unreachable this round — skip, don't kill live tunnels on a hunch
+
+    let tunnels;
+    try {
+      tunnels = (await pool.query(
+        `SELECT slug, created_at FROM tunnels WHERE relay_node_id = $1 AND created_at < now() - interval '${Math.floor(SWEEP_GRACE_MS / 1000)} seconds'`,
+        [node.id]
+      )).rows;
+    } catch (e) {
+      console.error(`sweep: could not load tunnels for node ${node.id}:`, e.message);
+      continue;
+    }
+
+    for (const t of tunnels) {
+      if (!connected.has(t.slug)) {
+        console.log(`sweep: removing stale slug '${t.slug}' on node ${node.id} (no live frps proxy)`);
+        try {
+          await pool.query('DELETE FROM tunnels WHERE slug = $1', [t.slug]);
+          await delRouteCache(t.slug);
+        } catch (e) {
+          console.error(`sweep: failed to remove '${t.slug}':`, e.message);
+        }
+      }
+    }
+  }
+}
+
+setInterval(() => sweepStaleSlugs().catch((e) => console.error('sweep failed:', e.message)), SWEEP_INTERVAL_MS);
+
+async function main() {
+  await redis.connect();
+  await pool.query('SELECT 1'); // fail fast if DB unreachable
+  server.listen(LISTEN_PORT, () => {
+    console.log(`opengent register-api listening on :${LISTEN_PORT}`);
+  });
+}
+
+main().catch((e) => { console.error('startup failed:', e.message); process.exit(1); });

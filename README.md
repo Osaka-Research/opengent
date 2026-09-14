@@ -6,7 +6,7 @@ client side.
 
 ```
 curl -sL https://yourdomain.com/install.sh \
-  | OPENGENT_SERVER=yourdomain.com OPENGENT_FRP_TOKEN=<given-by-admin> \
+  | OPENGENT_SERVER=yourdomain.com OPENGENT_FRP_TOKEN=<given-by-admin> OPENGENT_ACCOUNT_TOKEN=<given-by-admin> \
     bash -s -- yourname
 ```
 
@@ -46,8 +46,12 @@ OPENGENT_SERVER=yourdomain.com ./install.sh stop yourname
   through Caddy on the same box.
 - **Caddy** terminates TLS (automatic Let's Encrypt) on the VPS and routes
   `/username/*` to that user's tunneled port.
-- **register-api** is a small, dependency-free Node service that allocates a
-  free port for a new username, writes the Caddy route, and reloads Caddy.
+- **register-api** is a stateless Node service (Postgres for tunnel/relay
+  state, Redis for rate limiting) that allocates a free port on the
+  least-loaded relay node for a new username, writes the Caddy route, and
+  reloads Caddy. Stateless means you can run multiple replicas behind a
+  load balancer as usage grows — see `server/setup.sh` for how a single
+  box is provisioned, and its header comment for adding more relay nodes.
 
 Each user gets their own ttyd process, own port, own path, own basic-auth
 credentials. No shared shell, no shared session.
@@ -62,8 +66,29 @@ cd opengent/server
 sudo OPENGENT_DOMAIN=yourdomain.com ./setup.sh
 ```
 
-This installs Caddy, frps, and the register-api as systemd services, and
-prints the `OPENGENT_FRP_TOKEN` to hand out to clients.
+This installs Caddy, frps, Postgres, Redis, the register-api, and the
+gateway as systemd services, runs the DB migration, registers this box as
+relay node 1, and prints the `OPENGENT_FRP_TOKEN` to hand out to clients.
+
+### Adding relay capacity (multi-node)
+
+Each relay node's tunneled ports are a hard-capped range (~1000 concurrent
+shares by default). To scale past that, add more nodes on the same
+private network (VPC/LAN) as node 1:
+
+```
+git clone https://github.com/Osaka-Research/opengent
+cd opengent/server
+sudo OPENGENT_PUBLIC_HOST=node2.yourdomain.com \
+     OPENGENT_INTERNAL_HOST=10.0.0.5 \
+     OPENGENT_FRP_TOKEN=<the token from setup.sh> \
+     ./add-relay-node.sh 22000 22999
+```
+
+It installs just frps and prints an `INSERT` to run against the central
+Postgres — register-api picks up the new node automatically, no restart.
+The gateway reaches every node's tunnel ports over the private network
+(never the public internet), so all nodes must share one.
 
 ## Client setup (per user)
 
@@ -99,7 +124,8 @@ npm install
       "args": ["/path/to/opengent/mcp/index.js"],
       "env": {
         "OPENGENT_SERVER": "yourdomain.com",
-        "OPENGENT_FRP_TOKEN": "<given-by-admin>"
+        "OPENGENT_FRP_TOKEN": "<given-by-admin>",
+        "OPENGENT_ACCOUNT_TOKEN": "<given-by-admin>"
       }
     }
   }
@@ -112,16 +138,14 @@ CLI flow above.
 
 ## Security notes
 
-This is a minimal scaffold, not a hardened multi-tenant platform. Before
-using it for anything beyond trusted collaborators:
-
-- `OPENGENT_FRP_TOKEN` is one shared secret for every client. Anyone who has
-  it can open an frp tunnel to any port in the configured range. Rotate it
-  if it leaks; consider per-client tokens (frp supports auth plugins) for
-  larger deployments.
-- The registration API (`/api/register`) is unauthenticated — anyone who can
-  reach it can claim an unused username. Put it behind an allowlist or an
-  admin-issued invite token if that's not acceptable for your use case.
+- `OPENGENT_FRP_TOKEN` is still one shared secret for every client — it
+  only gates opening an frp tunnel at all (further bounded by
+  `allowPorts` and `proxyBindAddr`, so a leaked one can't reach anything
+  off the relay's tunnel range). Rotate it if it leaks.
+- Claiming a username requires `OPENGENT_ACCOUNT_TOKEN`, issued per
+  account via `create-user.sh` (not shared) — deactivate one account
+  (`UPDATE users SET active = false ...`) without touching anyone else's,
+  and each account is capped at `max_slugs` concurrent shares.
 - ttyd's `-c user:pass` is HTTP basic auth over TLS (fine) but not
   brute-force rate-limited. Consider fronting with Caddy's `basicauth` or
   fail2ban for anything internet-facing long-term.
