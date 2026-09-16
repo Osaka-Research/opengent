@@ -46,17 +46,6 @@ ALTER TABLE tunnels ADD COLUMN IF NOT EXISTS unlisted BOOLEAN NOT NULL DEFAULT f
 CREATE INDEX IF NOT EXISTS tunnels_relay_node_idx ON tunnels (relay_node_id);
 CREATE INDEX IF NOT EXISTS tunnels_owner_idx ON tunnels (owner_user_id);
 
--- A viewer asking to type into a public (read-only-by-default) terminal.
--- No FK to tunnels(slug) on purpose — a request should stay in history
--- even after the tunnel it was for is long gone, and slugs get reused.
--- "currently granted" is computed at read time (status='granted' AND
--- expires_at > now()), not swept — a poller just sees it lapse.
-CREATE TABLE IF NOT EXISTS control_requests (
-  id          SERIAL PRIMARY KEY,
-  slug        TEXT NOT NULL,
-  status      TEXT NOT NULL DEFAULT 'pending', -- pending | granted | denied
-  expires_at  TIMESTAMPTZ,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS control_requests_slug_idx ON control_requests (slug);
+-- The "ask to type" feature (viewers requesting control of a read-only
+-- share) was removed — drop its table on deployments that still have it.
+DROP TABLE IF EXISTS control_requests;

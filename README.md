@@ -178,9 +178,6 @@ CLI flow above.
   so treat it like a root password: don't post it anywhere public, and
   anyone it leaks to (browser history, a proxy log, a pasted screenshot)
   has the same access you do until you `stop` the share.
-- The public link can still take one-off control requests from viewers
-  (`install.sh requests`/`grant`/`deny`) independent of the writable link
-  — that stays an explicit, time-boxed, owner-approved grant.
 - The fleet-wide frp token gates opening a tunnel at all (further
   bounded by `allowPorts` and `proxyBindAddr`, so a leaked one can't
   reach anything off the relay's tunnel range) — but `/api/signup`

@@ -6,13 +6,12 @@
 <title>shellai.tv — live terminals</title>
 <style>
   :root {
-    --bg: #0e0e10;
-    --bg-raised: #18181b;
-    --border: #2c2c33;
-    --text: #efeff1;
-    --text-dim: #adadb8;
-    --accent: #9147ff;
-    --live: #eb0400;
+    --bg: #0b0e11;
+    --bg-raised: #12161b;
+    --border: #1f252b;
+    --text: #e6e8eb;
+    --text-dim: #8b95a1;
+    --accent: #34d399;
   }
   * { box-sizing: border-box; }
   body {
@@ -31,7 +30,7 @@
     border-bottom: 1px solid var(--border);
     position: sticky;
     top: 0;
-    background: rgba(14,14,16,0.92);
+    background: rgba(11,14,17,0.92);
     backdrop-filter: blur(6px);
     z-index: 10;
   }
@@ -40,7 +39,7 @@
     align-items: baseline;
     gap: 0.6rem;
     font-weight: 700;
-    font-size: 1.15rem;
+    font-size: 1.05rem;
     letter-spacing: -0.02em;
   }
   .brand .prompt { color: var(--accent); }
@@ -52,6 +51,8 @@
   }
   @media (min-width: 560px) { .brand .tagline { display: inline; } }
   .count-pill {
+    display: flex;
+    align-items: center;
     background: var(--bg-raised);
     border: 1px solid var(--border);
     border-radius: 999px;
@@ -62,84 +63,64 @@
   }
   .count-pill .dot {
     display: inline-block;
-    width: 7px; height: 7px;
+    width: 6px; height: 6px;
     border-radius: 50%;
-    background: var(--live);
-    margin-right: 0.4rem;
-    box-shadow: 0 0 6px var(--live);
+    background: var(--accent);
+    margin-right: 0.5rem;
   }
-  main { padding: 1.5rem clamp(16px, 4vw, 2.5rem); max-width: 1400px; margin: 0 auto; }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 1.1rem;
-  }
-  a.card {
-    text-decoration: none;
-    color: inherit;
-    display: block;
+  main { padding: 1.5rem clamp(16px, 4vw, 2.5rem); max-width: 760px; margin: 0 auto; }
+  .list {
+    border: 1px solid var(--border);
     border-radius: 10px;
     overflow: hidden;
     background: var(--bg-raised);
-    border: 1px solid var(--border);
-    transition: transform 0.12s ease, border-color 0.12s ease;
   }
-  a.card:hover { transform: translateY(-3px); border-color: var(--accent); }
-  .thumb {
-    aspect-ratio: 16 / 10;
-    position: relative;
-    background:
-      repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 3px),
-      linear-gradient(160deg, #0a0a0b, #151518 60%, #0a0a0b);
-    padding: 0.7rem 0.8rem;
-    color: #3ddc61;
-    font-size: 0.72rem;
-    line-height: 1.5;
-    overflow: hidden;
-    white-space: pre;
+  a.row {
+    text-decoration: none;
+    color: inherit;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.12s ease;
   }
-  .thumb::after {
-    content: "";
-    position: absolute; inset: 0;
-    background: linear-gradient(to top, rgba(0,0,0,0.55), transparent 55%);
+  a.row:last-child { border-bottom: none; }
+  a.row:hover { background: rgba(255,255,255,0.03); }
+  .row .dot {
+    flex-shrink: 0;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 5px var(--accent);
   }
-  .live-badge {
-    position: absolute; top: 0.6rem; left: 0.6rem;
-    background: var(--live);
-    color: white;
-    font-weight: 700;
-    font-size: 0.65rem;
-    letter-spacing: 0.04em;
-    padding: 0.18rem 0.5rem;
-    border-radius: 4px;
-    z-index: 2;
-  }
-  .cursor { display: inline-block; width: 0.5em; background: #3ddc61; animation: blink 1s step-end infinite; }
-  @keyframes blink { 50% { opacity: 0; } }
-  .meta { padding: 0.7rem 0.85rem 0.85rem; display: flex; justify-content: space-between; align-items: flex-end; gap: 0.5rem; }
-  .slug { font-weight: 700; font-size: 0.95rem; color: var(--text); }
-  .slug::before { content: "/"; color: var(--text-dim); }
-  .since { color: var(--text-dim); font-size: 0.75rem; margin-top: 0.25rem; }
-  .request-ctrl {
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-dim);
-    border-radius: 6px;
-    padding: 0.28rem 0.55rem;
-    font-size: 0.68rem;
-    font-family: inherit;
-    cursor: pointer;
+  .row .slug {
+    font-weight: 600;
+    font-size: 0.92rem;
+    color: var(--text);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .row .slug::before { content: "/"; color: var(--text-dim); font-weight: 400; }
+  .row .since {
+    margin-left: auto;
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+  .row .go {
+    color: var(--text-dim);
+    font-size: 0.85rem;
     flex-shrink: 0;
   }
-  .request-ctrl:hover { border-color: var(--accent); color: var(--text); }
-  .request-ctrl:disabled { opacity: 0.6; cursor: default; }
+  a.row:hover .go { color: var(--accent); }
   .empty {
     text-align: center;
     padding: 4rem 1rem;
     color: var(--text-dim);
   }
-  .empty h2 { color: var(--text); font-size: 1.1rem; margin-bottom: 0.4rem; }
+  .empty h2 { color: var(--text); font-size: 1.05rem; font-weight: 600; margin-bottom: 0.4rem; }
   .empty pre {
     display: inline-block;
     text-align: left;
@@ -149,7 +130,7 @@
     padding: 0.9rem 1.1rem;
     margin-top: 1.2rem;
     font-size: 0.78rem;
-    color: #3ddc61;
+    color: var(--accent);
     max-width: 92vw;
     overflow-x: auto;
   }
@@ -175,7 +156,7 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 0.25rem 0.55rem;
-    color: #3ddc61;
+    color: var(--accent);
     font-size: 0.78rem;
     user-select: all;
   }
@@ -200,7 +181,7 @@
 </div>
 
 <main>
-  <div id="grid" class="grid" hidden></div>
+  <div id="list" class="list" hidden></div>
   <div id="empty" class="empty" hidden>
     <h2>no one's live right now</h2>
     <div>be the first — share your terminal:</div>
@@ -213,7 +194,7 @@
 </footer>
 
 <script>
-  const grid = document.getElementById('grid');
+  const list = document.getElementById('list');
   const empty = document.getElementById('empty');
   const countText = document.getElementById('count-text');
 
@@ -221,67 +202,29 @@
     const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
     if (s < 60) return 'just now';
     const m = Math.floor(s / 60);
-    if (m < 60) return `live ${m}m`;
+    if (m < 60) return `${m}m`;
     const h = Math.floor(m / 60);
-    return `live ${h}h ${m % 60}m`;
+    return `${h}h ${m % 60}m`;
   }
 
-  function fauxLines(slug) {
-    const lines = [
-      `$ whoami`,
-      slug,
-      `$ uptime`,
-      `watching`,
-    ];
-    return lines.join('\n');
-  }
-
-  function render(list) {
-    countText.textContent = list.length === 1 ? '1 live' : `${list.length} live`;
-    if (!list.length) {
-      grid.hidden = true;
+  function render(entries) {
+    countText.textContent = entries.length === 1 ? '1 live' : `${entries.length} live`;
+    if (!entries.length) {
+      list.hidden = true;
       empty.hidden = false;
       return;
     }
     empty.hidden = true;
-    grid.hidden = false;
-    grid.innerHTML = list.map(t => `
-      <a class="card" href="/${t.slug}/">
-        <div class="thumb">
-          <span class="live-badge">LIVE</span>
-          ${fauxLines(t.slug)}<span class="cursor">&nbsp;</span>
-        </div>
-        <div class="meta">
-          <div>
-            <div class="slug">${t.slug}</div>
-            <div class="since">${timeSince(t.last_seen)}</div>
-          </div>
-          <button class="request-ctrl" type="button" data-slug="${t.slug}">ask to type</button>
-        </div>
+    list.hidden = false;
+    list.innerHTML = entries.map(t => `
+      <a class="row" href="/${t.slug}/">
+        <span class="dot"></span>
+        <span class="slug">${t.slug}</span>
+        <span class="since">${timeSince(t.last_seen)}</span>
+        <span class="go">watch →</span>
       </a>
     `).join('');
   }
-
-  grid.addEventListener('click', async (e) => {
-    const btn = e.target.closest('.request-ctrl');
-    if (!btn) return;
-    e.preventDefault();
-    e.stopPropagation();
-    btn.disabled = true;
-    const prevLabel = btn.textContent;
-    try {
-      const res = await fetch('/api/control/request', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ slug: btn.dataset.slug })
-      });
-      const data = await res.json().catch(() => ({}));
-      btn.textContent = res.ok ? 'requested — waiting' : (data.error || 'failed');
-    } catch {
-      btn.textContent = 'failed — offline?';
-    }
-    setTimeout(() => { btn.textContent = prevLabel; btn.disabled = false; }, 8000);
-  });
 
   async function refresh() {
     try {
