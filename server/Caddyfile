@@ -5,7 +5,7 @@
 # Caddy auto-provisions Let's Encrypt certs for the domain below; just
 # point its A record at this VPS first.
 
-{$OPENGENT_DOMAIN} {
+$OPENGENT_DOMAIN {
     # Registration API (install.sh POSTs here to claim/release a slug).
     handle /api/* {
         uri strip_prefix /api
