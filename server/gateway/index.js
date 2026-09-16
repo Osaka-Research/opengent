@@ -118,18 +118,88 @@ async function lookupTarget(slug) {
   return target;
 }
 
+// A tunnel row can outlive its actual connection for a few minutes —
+// register-api's sweep only runs every 5 minutes (SWEEP_INTERVAL_MS) with
+// a 3-minute grace period, and a client that crashes or loses network
+// without running `stop` leaves a row behind until then. Rather than show
+// a dead slug on the homepage for that whole window, ask each relay
+// node's frps API which proxies are actually connected right now and
+// filter the list to those, same signal register-api's sweep itself uses.
+const CONNECTED_CACHE_TTL_S = 5; // short: just enough to survive a burst of concurrent /_active polls
+
+function fetchConnectedProxyNames(node) {
+  return new Promise((resolve) => {
+    const [host, portStr] = node.frps_api_addr.split(':');
+    const auth = Buffer.from(`${node.frps_api_user}:${node.frps_api_pass}`).toString('base64');
+    const req = http.get(
+      { host, port: Number(portStr), path: '/api/proxy/tcp', headers: { Authorization: `Basic ${auth}` }, timeout: 3000 },
+      (res) => {
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            resolve(new Set((parsed.proxies || []).map((p) => p.name)));
+          } catch (e) {
+            console.error(`connected-proxy check: bad frps API response from node ${node.id}:`, e.message);
+            resolve(null);
+          }
+        });
+      }
+    );
+    req.on('error', (e) => { console.error(`connected-proxy check: node ${node.id} frps API unreachable:`, e.message); resolve(null); });
+    req.on('timeout', () => req.destroy());
+  });
+}
+
+async function connectedProxyNamesForNode(node) {
+  const cacheKey = `connected-proxies:${node.id}`;
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) return new Set(JSON.parse(cached));
+  } catch (e) {
+    console.error('connected-proxy cache read failed:', e.message);
+  }
+  const names = await fetchConnectedProxyNames(node);
+  if (names) {
+    try { await redis.set(cacheKey, JSON.stringify([...names]), { EX: CONNECTED_CACHE_TTL_S }); } catch { /* best effort */ }
+  }
+  return names; // null means the node's frps API was unreachable this round
+}
+
 // Browse page (home) — a live directory of active shares, "twitch for
-// terminals". Backed by the tunnels table directly: register-api's sweep
-// job already deletes a slug's row the moment its frps proxy goes away,
-// so "row exists" is a good enough liveness signal without a separate
-// heartbeat.
+// terminals".
 async function listActiveTunnels() {
   const { rows } = await pool.query(
     // unlisted slugs (the random-hash writable link) never show up here —
     // the whole point is that only someone holding the URL can find it.
-    'SELECT slug, last_seen FROM tunnels WHERE NOT unlisted ORDER BY last_seen DESC LIMIT 200'
+    `SELECT t.slug, t.last_seen, t.relay_node_id,
+            rn.frps_api_addr, rn.frps_api_user, rn.frps_api_pass
+     FROM tunnels t JOIN relay_nodes rn ON rn.id = t.relay_node_id
+     WHERE NOT t.unlisted ORDER BY t.last_seen DESC LIMIT 200`
   );
-  return rows;
+  if (!rows.length) return [];
+
+  const nodes = new Map();
+  for (const r of rows) {
+    if (!nodes.has(r.relay_node_id)) {
+      nodes.set(r.relay_node_id, { id: r.relay_node_id, frps_api_addr: r.frps_api_addr, frps_api_user: r.frps_api_user, frps_api_pass: r.frps_api_pass });
+    }
+  }
+  const connectedByNode = new Map(
+    await Promise.all([...nodes.values()].map(async (n) => [n.id, await connectedProxyNamesForNode(n)]))
+  );
+
+  return rows
+    .filter((r) => {
+      const connected = connectedByNode.get(r.relay_node_id);
+      // Node's frps API unreachable this round — fail open (same call
+      // register-api's own sweep makes) rather than hide everyone on a
+      // hunch; a real outage still gets caught by the sweep's DB deletes.
+      if (!connected) return true;
+      return connected.has(r.slug);
+    })
+    .map((r) => ({ slug: r.slug, last_seen: r.last_seen }));
 }
 
 async function handleRequest(req, res) {
