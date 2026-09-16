@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>shellai.tv — live terminals</title>
+<style>
+  :root {
+    --bg: #0e0e10;
+    --bg-raised: #18181b;
+    --border: #2c2c33;
+    --text: #efeff1;
+    --text-dim: #adadb8;
+    --accent: #9147ff;
+    --live: #eb0400;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Roboto Mono", monospace;
+    padding-bottom: 3rem;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem clamp(16px, 4vw, 2.5rem);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    background: rgba(14,14,16,0.92);
+    backdrop-filter: blur(6px);
+    z-index: 10;
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    font-weight: 700;
+    font-size: 1.15rem;
+    letter-spacing: -0.02em;
+  }
+  .brand .prompt { color: var(--accent); }
+  .brand .tagline {
+    font-weight: 400;
+    color: var(--text-dim);
+    font-size: 0.8rem;
+    display: none;
+  }
+  @media (min-width: 560px) { .brand .tagline { display: inline; } }
+  .count-pill {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.3rem 0.8rem;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+  .count-pill .dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--live);
+    margin-right: 0.4rem;
+    box-shadow: 0 0 6px var(--live);
+  }
+  main { padding: 1.5rem clamp(16px, 4vw, 2.5rem); max-width: 1400px; margin: 0 auto; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 1.1rem;
+  }
+  a.card {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    transition: transform 0.12s ease, border-color 0.12s ease;
+  }
+  a.card:hover { transform: translateY(-3px); border-color: var(--accent); }
+  .thumb {
+    aspect-ratio: 16 / 10;
+    position: relative;
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 3px),
+      linear-gradient(160deg, #0a0a0b, #151518 60%, #0a0a0b);
+    padding: 0.7rem 0.8rem;
+    color: #3ddc61;
+    font-size: 0.72rem;
+    line-height: 1.5;
+    overflow: hidden;
+    white-space: pre;
+  }
+  .thumb::after {
+    content: "";
+    position: absolute; inset: 0;
+    background: linear-gradient(to top, rgba(0,0,0,0.55), transparent 55%);
+  }
+  .live-badge {
+    position: absolute; top: 0.6rem; left: 0.6rem;
+    background: var(--live);
+    color: white;
+    font-weight: 700;
+    font-size: 0.65rem;
+    letter-spacing: 0.04em;
+    padding: 0.18rem 0.5rem;
+    border-radius: 4px;
+    z-index: 2;
+  }
+  .cursor { display: inline-block; width: 0.5em; background: #3ddc61; animation: blink 1s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .meta { padding: 0.7rem 0.85rem 0.85rem; }
+  .slug { font-weight: 700; font-size: 0.95rem; color: var(--text); }
+  .slug::before { content: "/"; color: var(--text-dim); }
+  .since { color: var(--text-dim); font-size: 0.75rem; margin-top: 0.25rem; }
+  .empty {
+    text-align: center;
+    padding: 4rem 1rem;
+    color: var(--text-dim);
+  }
+  .empty h2 { color: var(--text); font-size: 1.1rem; margin-bottom: 0.4rem; }
+  .empty pre {
+    display: inline-block;
+    text-align: left;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.9rem 1.1rem;
+    margin-top: 1.2rem;
+    font-size: 0.78rem;
+    color: #3ddc61;
+    max-width: 92vw;
+    overflow-x: auto;
+  }
+  footer {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    margin-top: 3rem;
+  }
+  footer a { color: var(--text-dim); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><span class="prompt">&gt;_</span> shellai.tv <span class="tagline">— live terminals</span></div>
+  <div class="count-pill" id="count-pill"><span class="dot"></span><span id="count-text">loading…</span></div>
+</header>
+
+<main>
+  <div id="grid" class="grid" hidden></div>
+  <div id="empty" class="empty" hidden>
+    <h2>no one's live right now</h2>
+    <div>be the first — share your terminal:</div>
+    <pre>curl -sL https://shellai.tv/install.sh \
+  | OPENGENT_SERVER=shellai.tv OPENGENT_FRP_TOKEN=&lt;token&gt; OPENGENT_ACCOUNT_TOKEN=&lt;token&gt; \
+    bash -s -- yourname</pre>
+  </div>
+</main>
+
+<footer>
+  <a href="https://github.com/Osaka-Research/opengent" target="_blank" rel="noopener">opengent</a> — open-source terminal relay
+</footer>
+
+<script>
+  const grid = document.getElementById('grid');
+  const empty = document.getElementById('empty');
+  const countText = document.getElementById('count-text');
+
+  function timeSince(iso) {
+    const s = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
+    if (s < 60) return 'just now';
+    const m = Math.floor(s / 60);
+    if (m < 60) return `live ${m}m`;
+    const h = Math.floor(m / 60);
+    return `live ${h}h ${m % 60}m`;
+  }
+
+  function fauxLines(slug) {
+    const lines = [
+      `$ whoami`,
+      slug,
+      `$ uptime`,
+      `watching`,
+    ];
+    return lines.join('\n');
+  }
+
+  function render(list) {
+    countText.textContent = list.length === 1 ? '1 live' : `${list.length} live`;
+    if (!list.length) {
+      grid.hidden = true;
+      empty.hidden = false;
+      return;
+    }
+    empty.hidden = true;
+    grid.hidden = false;
+    grid.innerHTML = list.map(t => `
+      <a class="card" href="/${t.slug}/">
+        <div class="thumb">
+          <span class="live-badge">LIVE</span>
+          ${fauxLines(t.slug)}<span class="cursor">&nbsp;</span>
+        </div>
+        <div class="meta">
+          <div class="slug">${t.slug}</div>
+          <div class="since">${timeSince(t.last_seen)}</div>
+        </div>
+      </a>
+    `).join('');
+  }
+
+  async function refresh() {
+    try {
+      const res = await fetch('/_active');
+      if (!res.ok) return;
+      render(await res.json());
+    } catch (e) { /* keep last known state */ }
+  }
+
+  refresh();
+  setInterval(refresh, 10000);
+</script>
+
+</body>
+</html>

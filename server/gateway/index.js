@@ -10,9 +10,13 @@
 // never changes.
 
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const httpProxy = require('http-proxy');
 const { Pool } = require('pg');
 const { createClient } = require('redis');
+
+const HOMEPAGE_HTML = fs.readFileSync(path.join(__dirname, 'homepage.html'));
 
 const LISTEN_PORT = parseInt(process.env.OPENGENT_GATEWAY_PORT || '8791', 10);
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -66,11 +70,36 @@ async function lookupTarget(slug) {
   return target;
 }
 
+// Browse page (home) — a live directory of active shares, "twitch for
+// terminals". Backed by the tunnels table directly: register-api's sweep
+// job already deletes a slug's row the moment its frps proxy goes away,
+// so "row exists" is a good enough liveness signal without a separate
+// heartbeat.
+async function listActiveTunnels() {
+  const { rows } = await pool.query(
+    'SELECT slug, last_seen FROM tunnels ORDER BY last_seen DESC LIMIT 200'
+  );
+  return rows;
+}
+
 async function handleRequest(req, res) {
+  const urlPath = req.url.split('?')[0];
+
+  if (urlPath === '/' || urlPath === '') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(HOMEPAGE_HTML);
+  }
+
+  if (urlPath === '/_active') {
+    const list = await listActiveTunnels();
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify(list));
+  }
+
   const slug = slugFromPath(req.url);
   if (!slug || !SLUG_RE.test(slug)) {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    return res.end('opengent relay — https://github.com/Osaka-Research/opengent');
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    return res.end('not found');
   }
   const target = await lookupTarget(slug);
   if (!target) {
