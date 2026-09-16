@@ -18,7 +18,10 @@
 #   OPENGENT_SERVER   domain of the opengent relay — filled in automatically
 #                     when this script is fetched via curl from your server;
 #                     only set it by hand when running a local clone (required)
-#   OPENGENT_SHELL    command to run in the shared terminal (default: your $SHELL)
+#   OPENGENT_SHELL    command to run in the shared terminal (default: attach
+#                     to the current tmux pane if run from inside one — so
+#                     sharing whatever's already running there needs no
+#                     flags at all; otherwise your plain $SHELL)
 #   OPENGENT_WRITABLE set to 1 to let (password-authenticated) viewers type
 #                     into this terminal instead of just watching it
 
@@ -201,8 +204,21 @@ nohup "$FRPC_BIN" -c "$STATE_DIR/frpc.toml" >"$STATE_DIR/frpc.log" 2>&1 &
 echo $! > "$STATE_DIR/frpc.pid"
 disown 2>/dev/null || true
 
+# Already inside tmux and no explicit OPENGENT_SHELL? Stream *this exact
+# pane* — attaching another client to a live tmux session is safe (no new
+# process, no risk to what's already running there), unlike trying to
+# hijack an arbitrary bare terminal's pty. This is what makes "share
+# whatever's already running" a one-liner: run it from inside the tmux
+# session you want streamed, tmux or not otherwise required.
+SHARE_CMD="${OPENGENT_SHELL:-}"
+if [ -z "$SHARE_CMD" ] && [ -n "${TMUX:-}" ]; then
+  TMUX_SESSION="$(tmux display-message -p '#S' 2>/dev/null || true)"
+  [ -n "$TMUX_SESSION" ] && SHARE_CMD="tmux attach -t $TMUX_SESSION -r"
+fi
+[ -n "$SHARE_CMD" ] || SHARE_CMD="$SHELL"
+
 echo "==> starting ttyd on 127.0.0.1:$PORT"
-nohup ttyd "${TTYD_FLAGS[@]}" "${OPENGENT_SHELL:-$SHELL}" \
+nohup ttyd "${TTYD_FLAGS[@]}" $SHARE_CMD \
   >"$STATE_DIR/ttyd.log" 2>&1 &
 echo $! > "$STATE_DIR/ttyd.pid"
 disown 2>/dev/null || true

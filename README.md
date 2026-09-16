@@ -14,6 +14,13 @@ fetch first. Public and read-only by default — anyone with the URL can
 watch, like a stream; nobody can type into it. Pass `OPENGENT_WRITABLE=1`
 if you want authenticated viewers to be able to type instead.
 
+Run it from inside a `tmux` pane and it streams *that exact pane* — an
+ongoing AI chat session, a long build, whatever's already running there
+— automatically, no flags needed. That's the only way to share something
+already in progress without restarting it: attaching another client to a
+live tmux session is safe, but there's no safe way to retroactively grab
+an arbitrary bare terminal's pty without risking the original process.
+
 ```
 your terminal is live — public, read-only:
 
@@ -106,6 +113,11 @@ See the one-liner at the top. Requires `curl`, `tar`, and either `ttyd`
 already installed or a package manager the script knows about (`pkg` on
 Termux, `apt` on Debian/Ubuntu, `brew` on macOS). `frpc` is downloaded
 automatically, pinned to a fixed version, into `~/.opengent/bin`.
+
+**Windows:** run it inside WSL (`wsl --install` if you don't have it —
+built into Windows 10/11), not in PowerShell/cmd directly. `ttyd` needs a
+real Unix pty, which WSL provides and native Windows doesn't; there's no
+native-PowerShell client.
 
 Run it again with `stop` to kill the local processes and free the slug on
 the server.
