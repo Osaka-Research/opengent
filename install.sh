@@ -235,29 +235,20 @@ fi
 [ -n "$SHARE_CMD" ] || SHARE_CMD="$SHELL"
 
 # --- credentials ---------------------------------------------------------
-# Public and read-only by default — like watching a stream, not remote-
-# controlling someone's shell. ttyd is readonly unless given -W.
-#
-# Exception: a tmux stream (above) that keeps its own `-r` read-only-client
-# flag. ttyd's readonly mode blocks *every* keystroke reaching the wrapped
-# command — including tmux's own scroll/copy-mode shortcut — so a plain
-# readonly ttyd session has no scrollback at all once the attached program
-# owns the alternate screen (as most full-screen TUIs, including an AI
-# chat session, do). Making ttyd writable here still doesn't hand viewers
-# control: tmux's `-r` itself is what keeps a read-only client from
-# controlling the shared session, letting it use its own local scrolling.
+# Public and read-only by default, always — like watching a stream, not
+# remote-controlling someone's shell. ttyd is readonly unless given -W.
+# (Tried making tmux-attach streams writable-but-tmux-protected so viewers
+# could scroll; reverted — it quietly made every share started from
+# inside a tmux session writable to anonymous viewers by default, which
+# is a worse default than "no scrollback for tmux streams".)
 WRITABLE="${OPENGENT_WRITABLE:-0}"
 TTYD_FLAGS=(-p "$PORT" -i 127.0.0.1 -b "/$USERNAME")
 PASS=""
-TMUX_STREAM_SCROLLABLE=0
 if [ "$WRITABLE" = 1 ]; then
   PASS="$(head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)"
   echo "$PASS" > "$STATE_DIR/password"
   chmod 600 "$STATE_DIR/password"
   TTYD_FLAGS+=(-W -c "$USERNAME:$PASS")
-elif [[ "$SHARE_CMD" == tmux\ attach* ]] && [[ "$SHARE_CMD" == *" -r"* ]]; then
-  TTYD_FLAGS+=(-W)
-  TMUX_STREAM_SCROLLABLE=1
 fi
 
 echo "==> starting ttyd on 127.0.0.1:$PORT"
@@ -276,16 +267,6 @@ if [ "$WRITABLE" = 1 ]; then
 
     user: $USERNAME
     pass: $PASS
-
-Stop sharing:
-    OPENGENT_SERVER=$SERVER ./install.sh stop $USERNAME
-EOF
-elif [ "$TMUX_STREAM_SCROLLABLE" = 1 ]; then
-  cat <<EOF
-
-==> your terminal is live — public, scrollable, no one can control it:
-
-    https://$SERVER/$USERNAME/
 
 Stop sharing:
     OPENGENT_SERVER=$SERVER ./install.sh stop $USERNAME
