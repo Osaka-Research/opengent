@@ -5,9 +5,10 @@
 #   curl -sL https://SERVER/install.sh | bash
 #     — the only thing you need to paste. No prompts: derives a username
 #       from this machine (device model / hostname / whoami), self-
-#       provisions an account, and goes live immediately. Terminal is
-#       public and read-only by default — anyone with the URL can watch,
-#       like a stream; nobody can type into it.
+#       provisions an account, and goes live immediately. Prints two
+#       links: a public read-only one anyone can watch like a stream,
+#       and a second, unguessable one that's writable — no password,
+#       whoever holds that URL can type.
 #   curl -sL https://SERVER/install.sh | bash -s -- USERNAME
 #     — pick your own username instead of the auto-derived one.
 #   curl -sL https://SERVER/install.sh | OPENGENT_TOKEN=xxx bash -s -- USERNAME
@@ -25,11 +26,12 @@
 #                     to the current tmux pane if run from inside one — so
 #                     sharing whatever's already running there needs no
 #                     flags at all; otherwise your plain $SHELL)
-#   OPENGENT_WRITABLE set to 1 to also print a second, unguessable writable
-#                     link (https://SERVER/<random-hash>/) — anyone holding
-#                     that URL can type, no password needed; keep it secret.
-#                     The public https://SERVER/USERNAME/ link stays
-#                     read-only either way.
+#   OPENGENT_WRITABLE set to 0 to skip the writable link and share
+#                     read-only only (default: 1 — prints both links; the
+#                     writable one is a second, unguessable URL, no
+#                     password needed, so keep it secret). The public
+#                     https://SERVER/USERNAME/ link stays read-only
+#                     either way.
 
 set -euo pipefail
 
@@ -215,12 +217,14 @@ REVOKE_TOKEN="$(echo "$RESP" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)"
 echo "{\"revokeToken\":\"$REVOKE_TOKEN\",\"port\":$PORT}" > "$STATE_DIR/meta.json"
 
 # --- register a second, unlisted slug for the writable link ----------------
-# A random-hash slug instead of a password: capability-URL style — anyone
-# holding the link can type, nobody has to type or store a password. Kept
-# out of the homepage directory (unlisted:true) so it can't be found by
-# browsing, only by having the link. Same account as the primary slug —
-# SELF_SERVE_MAX_SLUGS covers both.
-WRITABLE="${OPENGENT_WRITABLE:-0}"
+# On by default: every share gets a writable link alongside the read-only
+# one. A random-hash slug instead of a password: capability-URL style —
+# anyone holding the link can type, nobody has to type or store a
+# password. Kept out of the homepage directory (unlisted:true) so it
+# can't be found by browsing, only by having the link. Same account as
+# the primary slug — SELF_SERVE_MAX_SLUGS covers both.
+# Set OPENGENT_WRITABLE=0 to skip it and share read-only only.
+WRITABLE="${OPENGENT_WRITABLE:-1}"
 WRITE_SLUG=""
 WRITE_PORT=""
 if [ "$WRITABLE" = 1 ]; then

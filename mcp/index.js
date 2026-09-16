@@ -44,14 +44,14 @@ server.registerTool(
     description:
       'Share this machine\'s terminal as a public URL (https://SERVER/username/) via opengent. ' +
       'Starts ttyd + an frp tunnel locally and registers the slug with the relay. ' +
-      'The public link is always read-only — anyone with it can watch, nobody can type into it. ' +
-      'Pass writable:true to also get a second, unguessable link that lets anyone holding it type — ' +
-      'the URL itself is the credential, no password.',
+      'Returns two links by default: a public read-only one anyone can watch, and a second, ' +
+      'unguessable one that\'s writable — no password, the URL itself is the credential. ' +
+      'Pass writable:false to skip the writable link and share read-only only.',
     inputSchema: z.object({
       username: z.string().min(3).max(20).regex(/^[a-z0-9][a-z0-9-]*$/, 'lowercase letters/digits/hyphen'),
       server: z.string().optional().describe('opengent relay domain, overrides OPENGENT_SERVER env'),
       token: z.string().optional().describe('frp_token.account_token from an admin, overrides OPENGENT_TOKEN env — omit to self-provision an account automatically'),
-      writable: z.boolean().optional().describe('also generate a second, unguessable link that anyone holding it can type into (no password — the URL is the credential)')
+      writable: z.boolean().optional().describe('also generate a second, unguessable link that anyone holding it can type into (no password — the URL is the credential). Default true; pass false for read-only only')
     })
   },
   async ({ username, server: srv, token, writable }) => {
@@ -60,7 +60,7 @@ server.registerTool(
 
     const extraEnv = { OPENGENT_SERVER };
     if (token || process.env.OPENGENT_TOKEN) extraEnv.OPENGENT_TOKEN = token || process.env.OPENGENT_TOKEN;
-    if (writable) extraEnv.OPENGENT_WRITABLE = '1';
+    if (writable !== undefined) extraEnv.OPENGENT_WRITABLE = writable ? '1' : '0';
 
     const { ok, stdout, stderr } = await runInstallSh([username], extraEnv);
     if (!ok) return text(`failed to start share: ${stderr || stdout}`);

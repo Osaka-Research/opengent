@@ -48,22 +48,20 @@ const LLMS_TXT = `# ${OPENGENT_DOMAIN}
 > https://${OPENGENT_DOMAIN}/ to see who's live right now.
 
 To share this terminal (or, run from inside an existing tmux pane, stream
-that exact ongoing session — an AI chat, a build, anything) as a public,
-read-only URL, run this — no prompts, no arguments needed, safe for an
-agent to run non-interactively:
+that exact ongoing session — an AI chat, a build, anything), run this —
+no prompts, no arguments needed, safe for an agent to run
+non-interactively:
 
   curl -sL https://${OPENGENT_DOMAIN}/install.sh | bash
 
 It derives a username from the machine it's run on, self-provisions an
-account (no signup step or token needed), and prints the live URL —
-https://${OPENGENT_DOMAIN}/<username>/. Pass one explicitly instead
-(bash -s -- <username>) to choose your own.
-
-The terminal is read-only for viewers by default (watch, not type). Add
-OPENGENT_WRITABLE=1 before the command to also get a second, unguessable
-writable link (https://${OPENGENT_DOMAIN}/<random-hash>/) — anyone who
-has that URL can type, no password; the public /<username>/ link stays
-read-only.
+account (no signup step or token needed), and prints two URLs: a public
+read-only one — https://${OPENGENT_DOMAIN}/<username>/, anyone can watch,
+nobody can type — and a second, unguessable writable one
+(https://${OPENGENT_DOMAIN}/<random-hash>/) that anyone holding it can
+type into, no password. Pass a username explicitly instead
+(bash -s -- <username>) to choose your own, or set OPENGENT_WRITABLE=0
+before the command to skip the writable link.
 
 Stop sharing:
 
