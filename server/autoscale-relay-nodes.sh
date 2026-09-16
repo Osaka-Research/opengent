@@ -119,7 +119,8 @@ else
 fi
 
 echo "==> auto scaling group"
-if ! aws autoscaling describe-auto-scaling-groups --region "$REGION" --auto-scaling-group-names "$ASG_NAME" --query "AutoScalingGroups[0]" --output text 2>/dev/null | grep -q .; then
+ASG_COUNT="$(aws autoscaling describe-auto-scaling-groups --region "$REGION" --auto-scaling-group-names "$ASG_NAME" --query "length(AutoScalingGroups)" --output text)"
+if [ "$ASG_COUNT" = "0" ]; then
   aws autoscaling create-auto-scaling-group --region "$REGION" \
     --auto-scaling-group-name "$ASG_NAME" \
     --launch-template "LaunchTemplateName=$LT_NAME,Version=\$Latest" \
