@@ -114,6 +114,7 @@ Requires=postgresql.service redis-server.service
 [Service]
 Environment=DATABASE_URL=$DATABASE_URL
 Environment=REDIS_URL=$REDIS_URL
+Environment=OPENGENT_FRP_TOKEN=$FRP_TOKEN
 ExecStart=/usr/bin/node /opt/opengent/register-api/server.js
 Restart=always
 [Install]

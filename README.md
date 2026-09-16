@@ -5,9 +5,12 @@ Turn any terminal — phone, laptop, CI box, agent sandbox — into a public URL
 client side.
 
 ```
-curl -sL https://yourdomain.com/install.sh \
-  | OPENGENT_TOKEN=<given-by-admin> bash -s -- yourname
+curl -sL https://yourdomain.com/install.sh | bash
 ```
+
+Asks for a username (and optionally a password) right there in the
+terminal, self-provisions an account, and starts sharing — no admin, no
+signup page, no token to go fetch first.
 
 ```
 your terminal is live:
@@ -16,6 +19,14 @@ your terminal is live:
 
     user: yourname
     pass: <generated>
+```
+
+Prefer a non-interactive one-liner (scripting, CI, or an admin-issued
+token with a higher quota)? Skip the prompts:
+
+```
+curl -sL https://yourdomain.com/install.sh \
+  | OPENGENT_TOKEN=<given-by-admin> bash -s -- yourname
 ```
 
 Stop sharing at any time:

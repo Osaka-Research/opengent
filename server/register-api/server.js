@@ -22,8 +22,26 @@ const SLUG_RE = /^[a-z0-9][a-z0-9-]{2,19}$/;
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const REDIS_URL = process.env.REDIS_URL;
+const FRP_TOKEN = process.env.OPENGENT_FRP_TOKEN;
 if (!DATABASE_URL) { console.error('DATABASE_URL not set'); process.exit(1); }
 if (!REDIS_URL) { console.error('REDIS_URL not set'); process.exit(1); }
+if (!FRP_TOKEN) { console.error('OPENGENT_FRP_TOKEN not set'); process.exit(1); }
+
+const SIGNUP_RATE_LIMIT_WINDOW_S = 3600;
+const SIGNUP_RATE_LIMIT_MAX = 5;
+const SELF_SERVE_MAX_SLUGS = 1;
+
+async function signupRateLimited(ip) {
+  try {
+    const key = `ratelimit:signup:${ip}`;
+    const count = await redis.incr(key);
+    if (count === 1) await redis.expire(key, SIGNUP_RATE_LIMIT_WINDOW_S);
+    return count > SIGNUP_RATE_LIMIT_MAX;
+  } catch (e) {
+    console.error('signup rate-limit check failed, allowing request:', e.message);
+    return false;
+  }
+}
 
 const RATE_LIMIT_WINDOW_S = 60;
 const RATE_LIMIT_MAX = 10;
@@ -232,6 +250,45 @@ const server = http.createServer((req, res) => {
         console.error('deregister failed:', e.message);
         return json(res, 503, { error: e.message });
       }
+    })();
+  }
+
+  // Self-serve account creation — no admin token needed. Ties one account
+  // 1:1 to the username someone picks in install.sh's interactive flow,
+  // so "username" doubles as both the account label and (on /register)
+  // the slug. Capped at SELF_SERVE_MAX_SLUGS; an admin can raise a
+  // specific account's quota later directly in Postgres if needed.
+  if (req.method === 'POST' && req.url === '/signup') {
+    return (async () => {
+      if (await signupRateLimited(clientIp(req))) return json(res, 429, { error: 'too many signups from this IP, slow down' });
+
+      readBody(req, async (raw) => {
+        let body;
+        try { body = JSON.parse(raw || '{}'); } catch { return json(res, 400, { error: 'bad json' }); }
+
+        const username = String(body.username || '').toLowerCase().trim();
+        if (!SLUG_RE.test(username)) {
+          return json(res, 400, { error: 'username must be 3-20 chars, lowercase letters/digits/hyphen, not starting with hyphen' });
+        }
+        if (RESERVED_SLUGS.has(username)) {
+          return json(res, 409, { error: 'username reserved' });
+        }
+
+        try {
+          const { rows } = await pool.query('SELECT 1 FROM users WHERE label = $1', [username]);
+          if (rows.length) return json(res, 409, { error: 'username taken — already have an account? re-run with your saved OPENGENT_TOKEN' });
+
+          const accountToken = crypto.randomBytes(20).toString('hex');
+          await pool.query(
+            'INSERT INTO users (label, token_hash, max_slugs) VALUES ($1, $2, $3)',
+            [username, sha256(accountToken), SELF_SERVE_MAX_SLUGS]
+          );
+          return json(res, 201, { frpToken: FRP_TOKEN, accountToken });
+        } catch (e) {
+          console.error('signup failed:', e.message);
+          return json(res, 503, { error: e.message });
+        }
+      });
     })();
   }
 

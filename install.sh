@@ -2,13 +2,18 @@
 # opengent client — turns your local terminal into https://SERVER/USERNAME
 #
 # Usage:
+#   curl -sL https://SERVER/install.sh | bash
+#     — the only thing you need to paste. Asks for a username (and
+#       optionally a password) interactively and self-provisions an
+#       account, no admin needed.
 #   curl -sL https://SERVER/install.sh | OPENGENT_TOKEN=xxx bash -s -- USERNAME
-#   ./install.sh USERNAME          # or run locally after cloning
+#     — non-interactive, for an admin-issued token or scripting.
+#   ./install.sh [USERNAME]        # or run locally after cloning
 #   ./install.sh stop USERNAME     # stop sharing + release the slug
 #
 # Env:
-#   OPENGENT_TOKEN   the one token your admin gave you (create-user.sh
-#                     prints it as frp_token.account_token) (required)
+#   OPENGENT_TOKEN    skip interactive signup and use this token instead
+#                     (create-user.sh prints it as frp_token.account_token)
 #   OPENGENT_SERVER   domain of the opengent relay — filled in automatically
 #                     when this script is fetched via curl from your server;
 #                     only set it by hand when running a local clone (required)
@@ -21,13 +26,35 @@ STATE_ROOT="${OPENGENT_HOME:-$HOME/.opengent}"
 
 die() { echo "error: $*" >&2; exit 1; }
 
+# Reads a line from the real keyboard even when this script's own stdin is
+# the curl pipe feeding bash — `read` alone would consume script bytes.
+tty_read() {
+  if [ -n "${2:-}" ]; then read -rs "$1" < /dev/tty; else read -r "$1" < /dev/tty; fi
+}
+
 [ "${1:-}" = "stop" ] && { shift; ACTION=stop; } || ACTION=start
 USERNAME="${1:-}"
-[ -n "$USERNAME" ] || die "usage: install.sh [stop] USERNAME"
-[[ "$USERNAME" =~ ^[a-z0-9][a-z0-9-]{2,19}$ ]] || die "username: 3-20 chars, lowercase letters/digits/hyphen"
+INTERACTIVE=0
+if [ "$ACTION" = start ] && [ -z "$USERNAME" ]; then
+  [ -c /dev/tty ] || die "usage: install.sh [stop] USERNAME (no username given and no terminal to ask on)"
+  INTERACTIVE=1
+fi
+[ "$ACTION" = stop ] && [ -z "$USERNAME" ] && die "usage: install.sh stop USERNAME"
 
 SERVER="${OPENGENT_SERVER:-__OPENGENT_SERVER__}"
 [ "$SERVER" != "__OPENGENT_SERVER__" ] || die "set OPENGENT_SERVER=yourdomain.com (only needed for a local clone — fetching this script via curl from your server fills it in automatically)"
+
+if [ "$INTERACTIVE" = 1 ]; then
+  echo "pick a username for your terminal (3-20 chars, lowercase letters/digits/hyphen):"
+  while true; do
+    printf '> ' > /dev/tty
+    tty_read USERNAME
+    [[ "$USERNAME" =~ ^[a-z0-9][a-z0-9-]{2,19}$ ]] && break
+    echo "invalid — 3-20 chars, lowercase letters/digits/hyphen, not starting with hyphen. try again:"
+  done
+else
+  [[ "$USERNAME" =~ ^[a-z0-9][a-z0-9-]{2,19}$ ]] || die "username: 3-20 chars, lowercase letters/digits/hyphen"
+fi
 STATE_DIR="$STATE_ROOT/$USERNAME"
 
 if [ "$ACTION" = stop ]; then
@@ -44,11 +71,27 @@ if [ "$ACTION" = stop ]; then
   exit 0
 fi
 
-OPENGENT_TOKEN="${OPENGENT_TOKEN:?set OPENGENT_TOKEN=<token from admin>}"
-FRP_TOKEN="${OPENGENT_TOKEN%%.*}"
-ACCOUNT_TOKEN="${OPENGENT_TOKEN#*.}"
-[ -n "$FRP_TOKEN" ] && [ -n "$ACCOUNT_TOKEN" ] && [ "$FRP_TOKEN" != "$ACCOUNT_TOKEN" ] \
-  || die "OPENGENT_TOKEN malformed — expected frp_token.account_token"
+TOKEN_FILE="$STATE_DIR/account_token"
+if [ -n "${OPENGENT_TOKEN:-}" ]; then
+  FRP_TOKEN="${OPENGENT_TOKEN%%.*}"
+  ACCOUNT_TOKEN="${OPENGENT_TOKEN#*.}"
+  [ -n "$FRP_TOKEN" ] && [ -n "$ACCOUNT_TOKEN" ] && [ "$FRP_TOKEN" != "$ACCOUNT_TOKEN" ] \
+    || die "OPENGENT_TOKEN malformed — expected frp_token.account_token"
+elif [ -f "$TOKEN_FILE" ]; then
+  FRP_TOKEN="$(cut -d. -f1 "$TOKEN_FILE")"
+  ACCOUNT_TOKEN="$(cut -d. -f2- "$TOKEN_FILE")"
+else
+  echo "==> creating your account on $SERVER"
+  SIGNUP_RESP="$(curl -sf -X POST "https://$SERVER/api/signup" \
+    -H 'Content-Type: application/json' -d "{\"username\":\"$USERNAME\"}")" \
+    || die "signup failed — username may be taken (if it's yours, re-run with OPENGENT_TOKEN=<saved token>) or the server is unreachable"
+  FRP_TOKEN="$(echo "$SIGNUP_RESP" | grep -o '"frpToken":"[^"]*"' | cut -d'"' -f4)"
+  ACCOUNT_TOKEN="$(echo "$SIGNUP_RESP" | grep -o '"accountToken":"[^"]*"' | cut -d'"' -f4)"
+  [ -n "$FRP_TOKEN" ] && [ -n "$ACCOUNT_TOKEN" ] || die "bad signup response: $SIGNUP_RESP"
+  mkdir -p "$STATE_DIR"
+  printf '%s.%s' "$FRP_TOKEN" "$ACCOUNT_TOKEN" > "$TOKEN_FILE"
+  chmod 600 "$TOKEN_FILE"
+fi
 mkdir -p "$STATE_DIR"
 
 # --- detect platform ---------------------------------------------------
@@ -123,7 +166,15 @@ REVOKE_TOKEN="$(echo "$RESP" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)"
 echo "{\"revokeToken\":\"$REVOKE_TOKEN\",\"port\":$PORT}" > "$STATE_DIR/meta.json"
 
 # --- credentials -----------------------------------------------------------
-PASS="$(head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)"
+PASS=""
+if [ "$INTERACTIVE" = 1 ]; then
+  echo "pick a password for your terminal (blank = auto-generate):"
+  printf '> ' > /dev/tty
+  tty_read PASS_INPUT hide
+  echo > /dev/tty
+  PASS="$PASS_INPUT"
+fi
+[ -n "$PASS" ] || PASS="$(head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)"
 echo "$PASS" > "$STATE_DIR/password"
 chmod 600 "$STATE_DIR/password"
 
