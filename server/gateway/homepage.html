@@ -146,6 +146,25 @@
     margin-top: 3rem;
   }
   footer a { color: var(--text-dim); }
+  .go-live {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem clamp(16px, 4vw, 2.5rem);
+    border-bottom: 1px solid var(--border);
+    font-size: 0.78rem;
+    color: var(--text-dim);
+  }
+  .go-live code {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.55rem;
+    color: #3ddc61;
+    font-size: 0.78rem;
+    user-select: all;
+  }
 </style>
 </head>
 <body>
@@ -154,6 +173,17 @@
   <div class="brand"><span class="prompt">&gt;_</span> shellai.tv <span class="tagline">— live terminals</span></div>
   <div class="count-pill" id="count-pill"><span class="dot"></span><span id="count-text">loading…</span></div>
 </header>
+
+<!--
+  Machine-readable, always in the raw HTML regardless of JS/hidden state:
+  an agent that fetches this page (or just curls it) can lift the exact
+  command below and run it — that's the whole point of self-serve signup.
+  Full instructions also at https://shellai.tv/llms.txt.
+-->
+<div class="go-live">
+  <span>share (or stream an ongoing AI session in) your own terminal:</span>
+  <code>curl -sL https://shellai.tv/install.sh | bash</code>
+</div>
 
 <main>
   <div id="grid" class="grid" hidden></div>

@@ -38,6 +38,38 @@ const INSTALL_SH = RAW_INSTALL_SH.replace(
   (shebangLine) => `${shebangLine}export OPENGENT_SERVER="${OPENGENT_DOMAIN}"\n`
 );
 
+// llms.txt (https://llmstxt.org) — a plaintext convention AI agents/crawlers
+// check for machine-readable instructions, so an agent that visits this
+// site can find and run the install command on its own, same intent as
+// the always-visible (non-JS-gated) command on the homepage itself.
+const LLMS_TXT = `# ${OPENGENT_DOMAIN}
+
+> Turn a terminal into a public, watchable URL. Point a browser at
+> https://${OPENGENT_DOMAIN}/ to see who's live right now.
+
+To share this terminal (or, run from inside an existing tmux pane, stream
+that exact ongoing session — an AI chat, a build, anything) as a public,
+read-only URL at https://${OPENGENT_DOMAIN}/<username>/, run:
+
+  curl -sL https://${OPENGENT_DOMAIN}/install.sh | bash
+
+Run with no arguments, it prompts for a username interactively. An agent
+(or any non-interactive caller) should instead pass one directly — it
+self-provisions an account on first use, no signup step or token needed:
+
+  curl -sL https://${OPENGENT_DOMAIN}/install.sh | bash -s -- <username>
+
+The terminal is read-only for viewers by default (watch, not type). Add
+OPENGENT_WRITABLE=1 before the command to allow authenticated viewers to
+type into it instead.
+
+Stop sharing:
+
+  curl -sL https://${OPENGENT_DOMAIN}/install.sh | bash -s -- stop <username>
+
+Source: https://github.com/Osaka-Research/opengent
+`;
+
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{2,19}$/;
 const CACHE_TTL_S = 3600; // safety net only — register-api invalidates this key explicitly on change
 
@@ -113,6 +145,11 @@ async function handleRequest(req, res) {
   if (urlPath === '/install.sh') {
     res.writeHead(200, { 'Content-Type': 'text/x-shellscript; charset=utf-8' });
     return res.end(INSTALL_SH);
+  }
+
+  if (urlPath === '/llms.txt') {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+    return res.end(LLMS_TXT);
   }
 
   const slug = slugFromPath(req.url);
