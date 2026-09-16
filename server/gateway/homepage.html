@@ -116,10 +116,24 @@
   }
   .cursor { display: inline-block; width: 0.5em; background: #3ddc61; animation: blink 1s step-end infinite; }
   @keyframes blink { 50% { opacity: 0; } }
-  .meta { padding: 0.7rem 0.85rem 0.85rem; }
+  .meta { padding: 0.7rem 0.85rem 0.85rem; display: flex; justify-content: space-between; align-items: flex-end; gap: 0.5rem; }
   .slug { font-weight: 700; font-size: 0.95rem; color: var(--text); }
   .slug::before { content: "/"; color: var(--text-dim); }
   .since { color: var(--text-dim); font-size: 0.75rem; margin-top: 0.25rem; }
+  .request-ctrl {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: 6px;
+    padding: 0.28rem 0.55rem;
+    font-size: 0.68rem;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .request-ctrl:hover { border-color: var(--accent); color: var(--text); }
+  .request-ctrl:disabled { opacity: 0.6; cursor: default; }
   .empty {
     text-align: center;
     padding: 4rem 1rem;
@@ -238,12 +252,36 @@
           ${fauxLines(t.slug)}<span class="cursor">&nbsp;</span>
         </div>
         <div class="meta">
-          <div class="slug">${t.slug}</div>
-          <div class="since">${timeSince(t.last_seen)}</div>
+          <div>
+            <div class="slug">${t.slug}</div>
+            <div class="since">${timeSince(t.last_seen)}</div>
+          </div>
+          <button class="request-ctrl" type="button" data-slug="${t.slug}">ask to type</button>
         </div>
       </a>
     `).join('');
   }
+
+  grid.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.request-ctrl');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    btn.disabled = true;
+    const prevLabel = btn.textContent;
+    try {
+      const res = await fetch('/api/control/request', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug: btn.dataset.slug })
+      });
+      const data = await res.json().catch(() => ({}));
+      btn.textContent = res.ok ? 'requested — waiting' : (data.error || 'failed');
+    } catch {
+      btn.textContent = 'failed — offline?';
+    }
+    setTimeout(() => { btn.textContent = prevLabel; btn.disabled = false; }, 8000);
+  });
 
   async function refresh() {
     try {

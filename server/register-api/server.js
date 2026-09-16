@@ -30,6 +30,10 @@ if (!FRP_TOKEN) { console.error('OPENGENT_FRP_TOKEN not set'); process.exit(1); 
 const SIGNUP_RATE_LIMIT_WINDOW_S = 3600;
 const SIGNUP_RATE_LIMIT_MAX = 5;
 const SELF_SERVE_MAX_SLUGS = 1;
+const CONTROL_REQUEST_WINDOW_S = 3600;
+const CONTROL_REQUEST_MAX = 20;
+const CONTROL_GRANT_DEFAULT_S = 600;
+const CONTROL_GRANT_MAX_S = 3600;
 
 async function signupRateLimited(ip) {
   try {
@@ -39,6 +43,18 @@ async function signupRateLimited(ip) {
     return count > SIGNUP_RATE_LIMIT_MAX;
   } catch (e) {
     console.error('signup rate-limit check failed, allowing request:', e.message);
+    return false;
+  }
+}
+
+async function controlRequestRateLimited(ip) {
+  try {
+    const key = `ratelimit:control:${ip}`;
+    const count = await redis.incr(key);
+    if (count === 1) await redis.expire(key, CONTROL_REQUEST_WINDOW_S);
+    return count > CONTROL_REQUEST_MAX;
+  } catch (e) {
+    console.error('control rate-limit check failed, allowing request:', e.message);
     return false;
   }
 }
@@ -286,6 +302,114 @@ const server = http.createServer((req, res) => {
           return json(res, 201, { frpToken: FRP_TOKEN, accountToken });
         } catch (e) {
           console.error('signup failed:', e.message);
+          return json(res, 503, { error: e.message });
+        }
+      });
+    })();
+  }
+
+  // A viewer asking the owner of a read-only public terminal to let them
+  // type into it. Doesn't grant anything by itself — just queues a
+  // request the owner (via install.sh) has to explicitly approve.
+  if (req.method === 'POST' && req.url === '/control/request') {
+    return (async () => {
+      if (await controlRequestRateLimited(clientIp(req))) return json(res, 429, { error: 'too many control requests, slow down' });
+
+      readBody(req, async (raw) => {
+        let body;
+        try { body = JSON.parse(raw || '{}'); } catch { return json(res, 400, { error: 'bad json' }); }
+
+        const slug = String(body.slug || '').toLowerCase().trim();
+        if (!SLUG_RE.test(slug)) return json(res, 400, { error: 'bad slug' });
+
+        try {
+          const { rows } = await pool.query('SELECT 1 FROM tunnels WHERE slug = $1', [slug]);
+          if (!rows.length) return json(res, 404, { error: 'no such live share' });
+
+          const { rows: inserted } = await pool.query(
+            `INSERT INTO control_requests (slug, status) VALUES ($1, 'pending') RETURNING id, created_at`,
+            [slug]
+          );
+          return json(res, 201, { requestId: inserted[0].id, createdAt: inserted[0].created_at });
+        } catch (e) {
+          console.error('control request failed:', e.message);
+          return json(res, 503, { error: e.message });
+        }
+      });
+    })();
+  }
+
+  // Public: current grant state + pending requests for a slug. Polled by
+  // both the owner's install.sh (to list what to approve) and the
+  // watcher process it starts (to know when to flip ttyd writable).
+  if (req.method === 'GET' && req.url.startsWith('/control/status')) {
+    return (async () => {
+      const slug = String(new URL(req.url, 'http://x').searchParams.get('slug') || '').toLowerCase().trim();
+      if (!SLUG_RE.test(slug)) return json(res, 400, { error: 'bad slug' });
+      try {
+        const { rows: granted } = await pool.query(
+          `SELECT id, expires_at FROM control_requests WHERE slug = $1 AND status = 'granted' AND expires_at > now() ORDER BY expires_at DESC LIMIT 1`,
+          [slug]
+        );
+        const { rows: pending } = await pool.query(
+          `SELECT id, created_at FROM control_requests WHERE slug = $1 AND status = 'pending' ORDER BY created_at ASC LIMIT 20`,
+          [slug]
+        );
+        return json(res, 200, {
+          granted: granted.length > 0,
+          grantedUntil: granted[0]?.expires_at || null,
+          pending
+        });
+      } catch (e) {
+        console.error('control status failed:', e.message);
+        return json(res, 503, { error: e.message });
+      }
+    })();
+  }
+
+  // Owner-only (authToken must own the tunnel this slug points at right
+  // now): approve or deny a pending request. Approving auto-denies every
+  // other pending/granted request for the slug — one writer at a time.
+  if (req.method === 'POST' && req.url === '/control/respond') {
+    return (async () => {
+      readBody(req, async (raw) => {
+        let body;
+        try { body = JSON.parse(raw || '{}'); } catch { return json(res, 400, { error: 'bad json' }); }
+
+        if (!body.authToken) return json(res, 401, { error: 'missing authToken' });
+        const account = await authenticateAccount(body.authToken);
+        if (!account) return json(res, 401, { error: 'bad, unknown, or deactivated authToken' });
+
+        const slug = String(body.slug || '').toLowerCase().trim();
+        const requestId = Number(body.requestId);
+        if (!SLUG_RE.test(slug) || !Number.isInteger(requestId)) return json(res, 400, { error: 'bad slug or requestId' });
+
+        try {
+          const { rows: owns } = await pool.query('SELECT 1 FROM tunnels WHERE slug = $1 AND owner_user_id = $2', [slug, account.id]);
+          if (!owns.length) return json(res, 403, { error: 'you do not own the live share at this slug' });
+
+          if (body.grant) {
+            const durationS = Math.min(Number(body.durationSeconds) || CONTROL_GRANT_DEFAULT_S, CONTROL_GRANT_MAX_S);
+            await pool.query(
+              `UPDATE control_requests SET status = 'denied' WHERE slug = $1 AND status IN ('pending','granted') AND id != $2`,
+              [slug, requestId]
+            );
+            const { rowCount } = await pool.query(
+              `UPDATE control_requests SET status = 'granted', expires_at = now() + ($1 || ' seconds')::interval WHERE id = $2 AND slug = $3`,
+              [durationS, requestId, slug]
+            );
+            if (!rowCount) return json(res, 404, { error: 'no such request' });
+            return json(res, 200, { granted: true, expiresInSeconds: durationS });
+          } else {
+            const { rowCount } = await pool.query(
+              `UPDATE control_requests SET status = 'denied' WHERE id = $1 AND slug = $2`,
+              [requestId, slug]
+            );
+            if (!rowCount) return json(res, 404, { error: 'no such request' });
+            return json(res, 200, { denied: true });
+          }
+        } catch (e) {
+          console.error('control respond failed:', e.message);
           return json(res, 503, { error: e.message });
         }
       });

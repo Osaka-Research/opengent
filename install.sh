@@ -14,6 +14,9 @@
 #     — use an admin-issued token instead of self-provisioning.
 #   ./install.sh [USERNAME]        # or run locally after cloning
 #   ./install.sh stop USERNAME     # stop sharing + release the slug
+#   ./install.sh requests [USERNAME]         # list viewers asking to type into it
+#   ./install.sh grant REQUEST_ID [USERNAME] # let them, for 10 minutes
+#   ./install.sh deny REQUEST_ID [USERNAME]  # say no
 #
 # Env:
 #   OPENGENT_TOKEN    skip interactive signup and use this token instead
@@ -49,11 +52,20 @@ auto_base_username() {
   printf '%s' "$raw"
 }
 
-[ "${1:-}" = "stop" ] && { shift; ACTION=stop; } || ACTION=start
-USERNAME="${1:-}"
-if [ "$ACTION" = stop ] && [ -z "$USERNAME" ]; then
+REQUEST_ID=""
+case "${1:-}" in
+  stop) shift; ACTION=stop; USERNAME="${1:-}" ;;
+  requests) shift; ACTION=requests; USERNAME="${1:-}" ;;
+  grant) shift; ACTION=grant; REQUEST_ID="${1:-}"; USERNAME="${2:-}" ;;
+  deny) shift; ACTION=deny; REQUEST_ID="${1:-}"; USERNAME="${2:-}" ;;
+  *) ACTION=start; USERNAME="${1:-}" ;;
+esac
+if [ "$ACTION" != start ] && [ -z "$USERNAME" ]; then
   USERNAME="$(auto_base_username)"
-  [ -d "$STATE_ROOT/$USERNAME" ] || die "usage: install.sh stop USERNAME (no username given, and no auto-derived share '$USERNAME' found in $STATE_ROOT)"
+  [ -d "$STATE_ROOT/$USERNAME" ] || die "usage: install.sh $ACTION ... USERNAME (no username given, and no auto-derived share '$USERNAME' found in $STATE_ROOT)"
+fi
+if [ "$ACTION" = grant ] || [ "$ACTION" = deny ]; then
+  [[ "$REQUEST_ID" =~ ^[0-9]+$ ]] || die "usage: install.sh $ACTION REQUEST_ID [USERNAME]"
 fi
 
 SERVER="${OPENGENT_SERVER:?set OPENGENT_SERVER=yourdomain.com (only needed for a local clone — fetching this script via curl from your server fills it in automatically)}"
@@ -95,6 +107,7 @@ if [ "$ACTION" = stop ]; then
   echo "==> stopping $USERNAME"
   [ -f "$STATE_DIR/ttyd.pid" ] && kill "$(cat "$STATE_DIR/ttyd.pid")" 2>/dev/null
   [ -f "$STATE_DIR/frpc.pid" ] && kill "$(cat "$STATE_DIR/frpc.pid")" 2>/dev/null
+  [ -f "$STATE_DIR/control-watch.pid" ] && kill "$(cat "$STATE_DIR/control-watch.pid")" 2>/dev/null
   if [ -f "$STATE_DIR/meta.json" ]; then
     TOKEN=$(grep -o '"revokeToken":"[^"]*"' "$STATE_DIR/meta.json" | cut -d'"' -f4)
     curl -sf -X DELETE "https://$SERVER/api/register/$USERNAME" \
@@ -102,6 +115,47 @@ if [ "$ACTION" = stop ]; then
   fi
   rm -rf "$STATE_DIR"
   echo "==> stopped. slug released."
+  exit 0
+fi
+
+if [ "$ACTION" = requests ] || [ "$ACTION" = grant ] || [ "$ACTION" = deny ]; then
+  TOKEN_FILE="$STATE_DIR/account_token"
+  if [ -n "${OPENGENT_TOKEN:-}" ]; then
+    ACCOUNT_TOKEN="${OPENGENT_TOKEN#*.}"
+  elif [ -f "$TOKEN_FILE" ]; then
+    ACCOUNT_TOKEN="$(cut -d. -f2- "$TOKEN_FILE")"
+  else
+    die "no saved account token for '$USERNAME' — set OPENGENT_TOKEN=<yours>"
+  fi
+
+  if [ "$ACTION" = requests ]; then
+    STATUS_JSON="$(curl -sf "https://$SERVER/api/control/status?slug=$USERNAME")" || die "could not reach server"
+    if echo "$STATUS_JSON" | grep -q '"granted":true'; then
+      UNTIL="$(echo "$STATUS_JSON" | grep -o '"grantedUntil":"[^"]*"' | cut -d'"' -f4)"
+      echo "control is currently GRANTED, until $UNTIL"
+    fi
+    IDS="$(echo "$STATUS_JSON" | grep -o '"id":[0-9]*' | grep -o '[0-9]*' || true)"
+    if [ -z "$IDS" ]; then
+      echo "no pending requests"
+    else
+      echo "pending requests:"
+      echo "$IDS" | while read -r id; do
+        echo "  #$id  ->  grant: install.sh grant $id $USERNAME   /   deny: install.sh deny $id $USERNAME"
+      done
+    fi
+    exit 0
+  fi
+
+  [ "$ACTION" = grant ] && GRANT_BOOL=true || GRANT_BOOL=false
+  RESP="$(curl -sf -X POST "https://$SERVER/api/control/respond" \
+    -H 'Content-Type: application/json' \
+    -d "{\"slug\":\"$USERNAME\",\"authToken\":\"$ACCOUNT_TOKEN\",\"requestId\":$REQUEST_ID,\"grant\":$GRANT_BOOL}")" \
+    || die "request failed — bad request id, you don't own this share, or the server is unreachable"
+  if [ "$ACTION" = grant ]; then
+    echo "==> granted — viewers can type into https://$SERVER/$USERNAME/ for the next 10 minutes"
+  else
+    echo "==> denied"
+  fi
   exit 0
 fi
 
@@ -257,6 +311,44 @@ nohup ttyd "${TTYD_FLAGS[@]}" $SHARE_CMD \
 echo $! > "$STATE_DIR/ttyd.pid"
 disown 2>/dev/null || true
 
+# Readonly shares can take control requests from viewers — this watcher
+# polls for an approved grant and restarts ttyd writable/readonly to
+# match. Only for the default readonly mode; OPENGENT_WRITABLE=1 is
+# already fully open, nothing to escalate.
+if [ "$WRITABLE" != 1 ]; then
+  cat > "$STATE_DIR/control-watch.sh" <<WATCHEOF
+#!/usr/bin/env bash
+SERVER="$SERVER"
+USERNAME="$USERNAME"
+PORT="$PORT"
+STATE_DIR="$STATE_DIR"
+SHARE_CMD="$SHARE_CMD"
+LAST_GRANTED=0
+while true; do
+  sleep 5
+  STATUS_JSON="\$(curl -s --max-time 5 "https://\$SERVER/api/control/status?slug=\$USERNAME" 2>/dev/null)" || continue
+  GRANTED=0
+  echo "\$STATUS_JSON" | grep -q '"granted":true' && GRANTED=1
+  if [ "\$GRANTED" != "\$LAST_GRANTED" ]; then
+    OLD_PID="\$(cat "\$STATE_DIR/ttyd.pid" 2>/dev/null || true)"
+    [ -n "\$OLD_PID" ] && kill "\$OLD_PID" 2>/dev/null
+    if [ "\$GRANTED" = 1 ]; then
+      nohup ttyd -p "\$PORT" -i 127.0.0.1 -b "/\$USERNAME" -W \$SHARE_CMD >>"\$STATE_DIR/ttyd.log" 2>&1 &
+    else
+      nohup ttyd -p "\$PORT" -i 127.0.0.1 -b "/\$USERNAME" \$SHARE_CMD >>"\$STATE_DIR/ttyd.log" 2>&1 &
+    fi
+    echo \$! > "\$STATE_DIR/ttyd.pid"
+    disown 2>/dev/null || true
+    LAST_GRANTED="\$GRANTED"
+  fi
+done
+WATCHEOF
+  chmod +x "$STATE_DIR/control-watch.sh"
+  nohup "$STATE_DIR/control-watch.sh" >"$STATE_DIR/control-watch.log" 2>&1 &
+  echo $! > "$STATE_DIR/control-watch.pid"
+  disown 2>/dev/null || true
+fi
+
 sleep 1
 if [ "$WRITABLE" = 1 ]; then
   cat <<EOF
@@ -277,6 +369,9 @@ else
 ==> your terminal is live — public, read-only:
 
     https://$SERVER/$USERNAME/
+
+A viewer can ask to type into it; check/approve with:
+    OPENGENT_SERVER=$SERVER ./install.sh requests $USERNAME
 
 Stop sharing:
     OPENGENT_SERVER=$SERVER ./install.sh stop $USERNAME
