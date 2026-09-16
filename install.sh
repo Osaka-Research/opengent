@@ -3,12 +3,15 @@
 #
 # Usage:
 #   curl -sL https://SERVER/install.sh | bash
-#     — the only thing you need to paste. Asks for a username interactively
-#       and self-provisions an account, no admin needed. Terminal is public
-#       and read-only by default — anyone with the URL can watch, like a
-#       stream; nobody can type into it.
+#     — the only thing you need to paste. No prompts: derives a username
+#       from this machine (device model / hostname / whoami), self-
+#       provisions an account, and goes live immediately. Terminal is
+#       public and read-only by default — anyone with the URL can watch,
+#       like a stream; nobody can type into it.
+#   curl -sL https://SERVER/install.sh | bash -s -- USERNAME
+#     — pick your own username instead of the auto-derived one.
 #   curl -sL https://SERVER/install.sh | OPENGENT_TOKEN=xxx bash -s -- USERNAME
-#     — non-interactive, for an admin-issued token or scripting.
+#     — use an admin-issued token instead of self-provisioning.
 #   ./install.sh [USERNAME]        # or run locally after cloning
 #   ./install.sh stop USERNAME     # stop sharing + release the slug
 #
@@ -32,32 +35,60 @@ STATE_ROOT="${OPENGENT_HOME:-$HOME/.opengent}"
 
 die() { echo "error: $*" >&2; exit 1; }
 
-# Reads a line from the real keyboard even when this script's own stdin is
-# the curl pipe feeding bash — `read` alone would consume script bytes.
-tty_read() { read -r "$1" < /dev/tty; }
+# Turns this machine's own identity (Termux device model, hostname, or
+# whoami — whichever resolves first) into a valid slug, so a bare
+# `curl | bash` can self-provision and go live with no prompt at all.
+auto_base_username() {
+  local raw=""
+  [ -n "${TERMUX_VERSION:-}" ] && raw="$(getprop ro.product.model 2>/dev/null || true)"
+  [ -n "$raw" ] || raw="$(hostname 2>/dev/null || true)"
+  [ -n "$raw" ] || raw="$(whoami 2>/dev/null || true)"
+  [ -n "$raw" ] || raw="guest"
+  raw="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-16)"
+  while [ "${#raw}" -lt 3 ]; do raw="${raw}0"; done
+  printf '%s' "$raw"
+}
 
 [ "${1:-}" = "stop" ] && { shift; ACTION=stop; } || ACTION=start
 USERNAME="${1:-}"
-INTERACTIVE=0
-if [ "$ACTION" = start ] && [ -z "$USERNAME" ]; then
-  [ -c /dev/tty ] || die "usage: install.sh [stop] USERNAME (no username given and no terminal to ask on)"
-  INTERACTIVE=1
+if [ "$ACTION" = stop ] && [ -z "$USERNAME" ]; then
+  USERNAME="$(auto_base_username)"
+  [ -d "$STATE_ROOT/$USERNAME" ] || die "usage: install.sh stop USERNAME (no username given, and no auto-derived share '$USERNAME' found in $STATE_ROOT)"
 fi
-[ "$ACTION" = stop ] && [ -z "$USERNAME" ] && die "usage: install.sh stop USERNAME"
 
 SERVER="${OPENGENT_SERVER:?set OPENGENT_SERVER=yourdomain.com (only needed for a local clone — fetching this script via curl from your server fills it in automatically)}"
 
-if [ "$INTERACTIVE" = 1 ]; then
-  echo "pick a username for your terminal (3-20 chars, lowercase letters/digits/hyphen):"
-  while true; do
-    printf '> ' > /dev/tty
-    tty_read USERNAME
-    [[ "$USERNAME" =~ ^[a-z0-9][a-z0-9-]{2,19}$ ]] && break
-    echo "invalid — 3-20 chars, lowercase letters/digits/hyphen, not starting with hyphen. try again:"
-  done
-else
-  [[ "$USERNAME" =~ ^[a-z0-9][a-z0-9-]{2,19}$ ]] || die "username: 3-20 chars, lowercase letters/digits/hyphen"
+# Auto mode: no username, no admin token — derive one from this machine
+# and self-provision, retrying with a short random suffix on conflict.
+# Sets USERNAME + the account token directly, so the shared token
+# resolution block below is skipped entirely for this path.
+AUTO_TOKENS_SET=0
+if [ "$ACTION" = start ] && [ -z "$USERNAME" ] && [ -z "${OPENGENT_TOKEN:-}" ]; then
+  BASE="$(auto_base_username)"
+  if [ -f "$STATE_ROOT/$BASE/account_token" ]; then
+    USERNAME="$BASE"
+  else
+    for attempt in 1 2 3 4 5; do
+      CANDIDATE="$BASE"
+      [ "$attempt" = 1 ] || CANDIDATE="${BASE}-$(printf '%x' $((RANDOM % 4096)))"
+      SIGNUP_RESP="$(curl -s -X POST "https://$SERVER/api/signup" \
+        -H 'Content-Type: application/json' -d "{\"username\":\"$CANDIDATE\"}")"
+      CAND_FRP="$(echo "$SIGNUP_RESP" | grep -o '"frpToken":"[^"]*"' | cut -d'"' -f4)" || true
+      CAND_ACC="$(echo "$SIGNUP_RESP" | grep -o '"accountToken":"[^"]*"' | cut -d'"' -f4)" || true
+      if [ -n "$CAND_FRP" ] && [ -n "$CAND_ACC" ]; then
+        USERNAME="$CANDIDATE"; FRP_TOKEN="$CAND_FRP"; ACCOUNT_TOKEN="$CAND_ACC"
+        mkdir -p "$STATE_ROOT/$USERNAME"
+        printf '%s.%s' "$FRP_TOKEN" "$ACCOUNT_TOKEN" > "$STATE_ROOT/$USERNAME/account_token"
+        chmod 600 "$STATE_ROOT/$USERNAME/account_token"
+        AUTO_TOKENS_SET=1
+        break
+      fi
+    done
+    [ "$AUTO_TOKENS_SET" = 1 ] || die "could not auto-provision a username after $attempt attempts: $SIGNUP_RESP"
+  fi
 fi
+
+[[ "$USERNAME" =~ ^[a-z0-9][a-z0-9-]{2,19}$ ]] || die "usage: install.sh [stop] USERNAME"
 STATE_DIR="$STATE_ROOT/$USERNAME"
 
 if [ "$ACTION" = stop ]; then
@@ -75,7 +106,9 @@ if [ "$ACTION" = stop ]; then
 fi
 
 TOKEN_FILE="$STATE_DIR/account_token"
-if [ -n "${OPENGENT_TOKEN:-}" ]; then
+if [ "$AUTO_TOKENS_SET" = 1 ]; then
+  : # already set above, during the auto-provisioning retry loop
+elif [ -n "${OPENGENT_TOKEN:-}" ]; then
   FRP_TOKEN="${OPENGENT_TOKEN%%.*}"
   ACCOUNT_TOKEN="${OPENGENT_TOKEN#*.}"
   [ -n "$FRP_TOKEN" ] && [ -n "$ACCOUNT_TOKEN" ] && [ "$FRP_TOKEN" != "$ACCOUNT_TOKEN" ] \
