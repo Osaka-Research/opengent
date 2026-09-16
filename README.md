@@ -8,11 +8,13 @@ client side.
 curl -sL https://yourdomain.com/install.sh | bash
 ```
 
-Asks for a username right there in the terminal, self-provisions an
-account, and starts sharing — no admin, no signup page, no token to go
-fetch first. Public and read-only by default — anyone with the URL can
-watch, like a stream; nobody can type into it. Pass `OPENGENT_WRITABLE=1`
-if you want authenticated viewers to be able to type instead.
+No prompts, nothing to type: derives a username from this machine
+(device model / hostname / whoami), self-provisions an account, and
+starts sharing — no admin, no signup page, no token to go fetch first.
+Public and read-only by default — anyone with the URL can watch, like
+a stream; nobody can type into it. Pass `OPENGENT_WRITABLE=1` if you
+want authenticated viewers to be able to type instead, or
+`bash -s -- yourname` to pick your own username.
 
 Run it from inside a `tmux` pane and it streams *that exact pane* — an
 ongoing AI chat session, a long build, whatever's already running there
@@ -27,8 +29,8 @@ your terminal is live — public, read-only:
     https://yourdomain.com/yourname/
 ```
 
-Prefer a non-interactive one-liner (scripting, CI, or an admin-issued
-token with a higher quota)? Skip the prompts:
+Prefer an admin-issued token (scripting, CI, or a higher quota than the
+self-serve default) instead of self-provisioning?
 
 ```
 curl -sL https://yourdomain.com/install.sh \

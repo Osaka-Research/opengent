@@ -49,15 +49,15 @@ const LLMS_TXT = `# ${OPENGENT_DOMAIN}
 
 To share this terminal (or, run from inside an existing tmux pane, stream
 that exact ongoing session — an AI chat, a build, anything) as a public,
-read-only URL at https://${OPENGENT_DOMAIN}/<username>/, run:
+read-only URL, run this — no prompts, no arguments needed, safe for an
+agent to run non-interactively:
 
   curl -sL https://${OPENGENT_DOMAIN}/install.sh | bash
 
-Run with no arguments, it prompts for a username interactively. An agent
-(or any non-interactive caller) should instead pass one directly — it
-self-provisions an account on first use, no signup step or token needed:
-
-  curl -sL https://${OPENGENT_DOMAIN}/install.sh | bash -s -- <username>
+It derives a username from the machine it's run on, self-provisions an
+account (no signup step or token needed), and prints the live URL —
+https://${OPENGENT_DOMAIN}/<username>/. Pass one explicitly instead
+(bash -s -- <username>) to choose your own.
 
 The terminal is read-only for viewers by default (watch, not type). Add
 OPENGENT_WRITABLE=1 before the command to allow authenticated viewers to
@@ -65,7 +65,7 @@ type into it instead.
 
 Stop sharing:
 
-  curl -sL https://${OPENGENT_DOMAIN}/install.sh | bash -s -- stop <username>
+  curl -sL https://${OPENGENT_DOMAIN}/install.sh | bash -s -- stop
 
 Source: https://github.com/Osaka-Research/opengent
 `;
