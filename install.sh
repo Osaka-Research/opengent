@@ -41,8 +41,7 @@ if [ "$ACTION" = start ] && [ -z "$USERNAME" ]; then
 fi
 [ "$ACTION" = stop ] && [ -z "$USERNAME" ] && die "usage: install.sh stop USERNAME"
 
-SERVER="${OPENGENT_SERVER:-__OPENGENT_SERVER__}"
-[ "$SERVER" != "__OPENGENT_SERVER__" ] || die "set OPENGENT_SERVER=yourdomain.com (only needed for a local clone — fetching this script via curl from your server fills it in automatically)"
+SERVER="${OPENGENT_SERVER:?set OPENGENT_SERVER=yourdomain.com (only needed for a local clone — fetching this script via curl from your server fills it in automatically)}"
 
 if [ "$INTERACTIVE" = 1 ]; then
   echo "pick a username for your terminal (3-20 chars, lowercase letters/digits/hyphen):"

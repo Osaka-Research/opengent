@@ -26,11 +26,17 @@ if (!DATABASE_URL) { console.error('DATABASE_URL not set'); process.exit(1); }
 if (!REDIS_URL) { console.error('REDIS_URL not set'); process.exit(1); }
 if (!OPENGENT_DOMAIN) { console.error('OPENGENT_DOMAIN not set'); process.exit(1); }
 
-// Served at /install.sh with the placeholder filled in, so the advertised
-// `curl .../install.sh | OPENGENT_TOKEN=... bash -s -- name` never needs
-// OPENGENT_SERVER spelled out by hand.
-const INSTALL_SH = fs.readFileSync(path.join(__dirname, '..', 'install.sh'), 'utf8')
-  .replace(/__OPENGENT_SERVER__/g, OPENGENT_DOMAIN);
+// Served at /install.sh with an `export OPENGENT_SERVER=...` line injected
+// right after the shebang, so the advertised `curl .../install.sh | bash`
+// never needs the domain spelled out by hand. Injecting a line (rather than
+// substituting a placeholder token throughout the file) keeps this from
+// colliding with the script's own text — e.g. its usage comments, or a
+// guard that checks whether OPENGENT_SERVER was actually provided.
+const RAW_INSTALL_SH = fs.readFileSync(path.join(__dirname, '..', 'install.sh'), 'utf8');
+const INSTALL_SH = RAW_INSTALL_SH.replace(
+  /^#!.*\n/,
+  (shebangLine) => `${shebangLine}export OPENGENT_SERVER="${OPENGENT_DOMAIN}"\n`
+);
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{2,19}$/;
 const CACHE_TTL_S = 3600; // safety net only — register-api invalidates this key explicitly on change
