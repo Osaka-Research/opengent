@@ -61,6 +61,9 @@ OPENGENT_DOMAIN="$DOMAIN" envsubst < "$(dirname "$0")/Caddyfile" > /etc/caddy/Ca
 mkdir -p /opt/opengent/register-api /opt/opengent/gateway
 cp -r "$(dirname "$0")/register-api/." /opt/opengent/register-api/
 cp -r "$(dirname "$0")/gateway/." /opt/opengent/gateway/
+install -m 644 "$(dirname "$0")/../install.sh" /opt/opengent/install.sh
+install -m 600 /dev/null "$INSTALL_DIR/frp_token"
+printf '%s' "$FRP_TOKEN" > "$INSTALL_DIR/frp_token"
 
 echo "==> installing register-api + gateway dependencies"
 (cd /opt/opengent/register-api && npm install --omit=dev --no-audit --no-fund --loglevel=error)
@@ -125,6 +128,7 @@ Requires=postgresql.service redis-server.service
 [Service]
 Environment=DATABASE_URL=$DATABASE_URL
 Environment=REDIS_URL=$REDIS_URL
+Environment=OPENGENT_DOMAIN=$DOMAIN
 ExecStart=/usr/bin/node /opt/opengent/gateway/index.js
 Restart=always
 [Install]
@@ -135,18 +139,26 @@ systemctl daemon-reload
 systemctl enable --now opengent-frps opengent-api opengent-gateway caddy
 systemctl reload caddy || true
 
+if [ "$ADMIN_TOKEN" = "(unchanged — already created on a previous run; re-run server/create-user.sh for a new one if lost)" ]; then
+  ADMIN_TOKEN_LINE="  your token:    $ADMIN_TOKEN"
+  SHARE_LINE="  (admin token unchanged — re-run server/create-user.sh admin for a fresh OPENGENT_TOKEN if lost)"
+else
+  ADMIN_TOKEN_LINE="  your token:    ${FRP_TOKEN}.${ADMIN_TOKEN}   (OPENGENT_TOKEN — yours alone)"
+  SHARE_LINE="  curl -sL https://$DOMAIN/install.sh | OPENGENT_TOKEN=${FRP_TOKEN}.${ADMIN_TOKEN} bash -s -- <username>"
+fi
+
 cat <<EOF
 
 ==> done.
 
   Domain:        https://$DOMAIN
-  frp token:     $FRP_TOKEN   (fleet-wide, same for every user — OPENGENT_FRP_TOKEN)
-  admin account: $ADMIN_TOKEN   (yours alone — OPENGENT_ACCOUNT_TOKEN)
+$ADMIN_TOKEN_LINE
   frps port:     7000
+
+Share your own terminal right now:
+$SHARE_LINE
 
 Every other user needs their own account — create one with:
   DATABASE_URL='$DATABASE_URL' ./create-user.sh <label> [max_slugs]
-
-Then they run:
-  curl -sL https://$DOMAIN/install.sh | OPENGENT_SERVER=$DOMAIN OPENGENT_FRP_TOKEN=$FRP_TOKEN OPENGENT_ACCOUNT_TOKEN=<theirs> bash -s -- <username>
+It prints a ready-to-paste OPENGENT_TOKEN for them, same shape as yours above.
 EOF

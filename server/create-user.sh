@@ -14,9 +14,15 @@
 
 set -euo pipefail
 
+die() { echo "error: $*" >&2; exit 1; }
+
 DATABASE_URL="${DATABASE_URL:?set DATABASE_URL=postgresql://...}"
 LABEL="${1:?usage: create-user.sh <label> [max_slugs]}"
 MAX_SLUGS="${2:-3}"
+FRP_TOKEN_FILE="/opt/opengent/frp_token"
+
+[ -f "$FRP_TOKEN_FILE" ] || die "no $FRP_TOKEN_FILE — run this on the box setup.sh provisioned"
+FRP_TOKEN="$(cat "$FRP_TOKEN_FILE")"
 
 TOKEN="$(openssl rand -hex 20)"
 TOKEN_HASH="$(printf '%s' "$TOKEN" | sha256sum | cut -d' ' -f1)"
@@ -28,10 +34,12 @@ cat <<EOF
 
 ==> account created: $LABEL (max $MAX_SLUGS slugs)
 
-  OPENGENT_ACCOUNT_TOKEN=$TOKEN
+  OPENGENT_TOKEN=${FRP_TOKEN}.${TOKEN}
 
-Give this to them along with OPENGENT_FRP_TOKEN and OPENGENT_SERVER — all
-three are required by install.sh. This token is shown once; it's stored
-only as a hash, so if it's lost, run this script again for a new one and
-deactivate the old row (UPDATE users SET active = false WHERE label = '...').
+Give them just this:
+  curl -sL https://<yourdomain>/install.sh | OPENGENT_TOKEN=${FRP_TOKEN}.${TOKEN} bash -s -- <username>
+
+This token is shown once; it's stored only as a hash, so if it's lost, run
+this script again for a new one and deactivate the old row
+(UPDATE users SET active = false WHERE label = '...').
 EOF

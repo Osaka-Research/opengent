@@ -6,8 +6,7 @@ client side.
 
 ```
 curl -sL https://yourdomain.com/install.sh \
-  | OPENGENT_SERVER=yourdomain.com OPENGENT_FRP_TOKEN=<given-by-admin> OPENGENT_ACCOUNT_TOKEN=<given-by-admin> \
-    bash -s -- yourname
+  | OPENGENT_TOKEN=<given-by-admin> bash -s -- yourname
 ```
 
 ```

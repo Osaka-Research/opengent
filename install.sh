@@ -2,16 +2,17 @@
 # opengent client — turns your local terminal into https://SERVER/USERNAME
 #
 # Usage:
-#   curl -sL https://SERVER/install.sh \
-#     | OPENGENT_SERVER=example.com OPENGENT_FRP_TOKEN=xxx OPENGENT_ACCOUNT_TOKEN=yyy bash -s -- USERNAME
+#   curl -sL https://SERVER/install.sh | OPENGENT_TOKEN=xxx bash -s -- USERNAME
 #   ./install.sh USERNAME          # or run locally after cloning
 #   ./install.sh stop USERNAME     # stop sharing + release the slug
 #
 # Env:
-#   OPENGENT_SERVER        domain of the opengent relay (required)
-#   OPENGENT_FRP_TOKEN     shared frp connection token, given to you by the admin (required)
-#   OPENGENT_ACCOUNT_TOKEN your personal account token, given to you by the admin (required)
-#   OPENGENT_SHELL         command to run in the shared terminal (default: your $SHELL)
+#   OPENGENT_TOKEN   the one token your admin gave you (create-user.sh
+#                     prints it as frp_token.account_token) (required)
+#   OPENGENT_SERVER   domain of the opengent relay — filled in automatically
+#                     when this script is fetched via curl from your server;
+#                     only set it by hand when running a local clone (required)
+#   OPENGENT_SHELL    command to run in the shared terminal (default: your $SHELL)
 
 set -euo pipefail
 
@@ -25,7 +26,8 @@ USERNAME="${1:-}"
 [ -n "$USERNAME" ] || die "usage: install.sh [stop] USERNAME"
 [[ "$USERNAME" =~ ^[a-z0-9][a-z0-9-]{2,19}$ ]] || die "username: 3-20 chars, lowercase letters/digits/hyphen"
 
-SERVER="${OPENGENT_SERVER:?set OPENGENT_SERVER=yourdomain.com}"
+SERVER="${OPENGENT_SERVER:-__OPENGENT_SERVER__}"
+[ "$SERVER" != "__OPENGENT_SERVER__" ] || die "set OPENGENT_SERVER=yourdomain.com (only needed for a local clone — fetching this script via curl from your server fills it in automatically)"
 STATE_DIR="$STATE_ROOT/$USERNAME"
 
 if [ "$ACTION" = stop ]; then
@@ -42,8 +44,11 @@ if [ "$ACTION" = stop ]; then
   exit 0
 fi
 
-FRP_TOKEN="${OPENGENT_FRP_TOKEN:?set OPENGENT_FRP_TOKEN=<token from admin>}"
-ACCOUNT_TOKEN="${OPENGENT_ACCOUNT_TOKEN:?set OPENGENT_ACCOUNT_TOKEN=<your account token from admin>}"
+OPENGENT_TOKEN="${OPENGENT_TOKEN:?set OPENGENT_TOKEN=<token from admin>}"
+FRP_TOKEN="${OPENGENT_TOKEN%%.*}"
+ACCOUNT_TOKEN="${OPENGENT_TOKEN#*.}"
+[ -n "$FRP_TOKEN" ] && [ -n "$ACCOUNT_TOKEN" ] && [ "$FRP_TOKEN" != "$ACCOUNT_TOKEN" ] \
+  || die "OPENGENT_TOKEN malformed — expected frp_token.account_token"
 mkdir -p "$STATE_DIR"
 
 # --- detect platform ---------------------------------------------------
