@@ -3,7 +3,8 @@
 // URL (domain.com/username) and manage that share, by driving the existing
 // install.sh rather than reimplementing its logic.
 //
-// Config (env, or per-call args): OPENGENT_SERVER, OPENGENT_FRP_TOKEN.
+// Config (env, or per-call args): OPENGENT_SERVER. install.sh self-provisions
+// an account on first share (no token needed) unless OPENGENT_TOKEN is set.
 
 import { McpServer } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
@@ -42,25 +43,30 @@ server.registerTool(
   {
     description:
       'Share this machine\'s terminal as a public URL (https://SERVER/username/) via opengent. ' +
-      'Starts ttyd + an frp tunnel locally and registers the slug with the relay.',
+      'Starts ttyd + an frp tunnel locally and registers the slug with the relay. ' +
+      'Public and read-only by default — anyone with the URL can watch, nobody can type into it.',
     inputSchema: z.object({
       username: z.string().min(3).max(20).regex(/^[a-z0-9][a-z0-9-]*$/, 'lowercase letters/digits/hyphen'),
       server: z.string().optional().describe('opengent relay domain, overrides OPENGENT_SERVER env'),
-      frpToken: z.string().optional().describe('frp shared token, overrides OPENGENT_FRP_TOKEN env')
+      token: z.string().optional().describe('frp_token.account_token from an admin, overrides OPENGENT_TOKEN env — omit to self-provision an account automatically'),
+      writable: z.boolean().optional().describe('let (password-authenticated) viewers type into this terminal instead of just watching it')
     })
   },
-  async ({ username, server: srv, frpToken }) => {
+  async ({ username, server: srv, token, writable }) => {
     const OPENGENT_SERVER = srv || process.env.OPENGENT_SERVER;
-    const OPENGENT_FRP_TOKEN = frpToken || process.env.OPENGENT_FRP_TOKEN;
     if (!OPENGENT_SERVER) return text('error: no server configured — pass `server` or set OPENGENT_SERVER');
-    if (!OPENGENT_FRP_TOKEN) return text('error: no frp token configured — pass `frpToken` or set OPENGENT_FRP_TOKEN');
 
-    const { ok, stdout, stderr } = await runInstallSh([username], { OPENGENT_SERVER, OPENGENT_FRP_TOKEN });
+    const extraEnv = { OPENGENT_SERVER };
+    if (token || process.env.OPENGENT_TOKEN) extraEnv.OPENGENT_TOKEN = token || process.env.OPENGENT_TOKEN;
+    if (writable) extraEnv.OPENGENT_WRITABLE = '1';
+
+    const { ok, stdout, stderr } = await runInstallSh([username], extraEnv);
     if (!ok) return text(`failed to start share: ${stderr || stdout}`);
 
     const url = (stdout.match(/https:\/\/\S+/) || [])[0];
     const pass = (stdout.match(/pass:\s*(\S+)/) || [])[1];
-    return text(url ? `Live at ${url}\nuser: ${username}\npass: ${pass}` : stdout);
+    if (!url) return text(stdout);
+    return text(pass ? `Live at ${url}\nuser: ${username}\npass: ${pass}` : `Live at ${url} (public, read-only)`);
   }
 );
 

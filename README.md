@@ -8,17 +8,16 @@ client side.
 curl -sL https://yourdomain.com/install.sh | bash
 ```
 
-Asks for a username (and optionally a password) right there in the
-terminal, self-provisions an account, and starts sharing — no admin, no
-signup page, no token to go fetch first.
+Asks for a username right there in the terminal, self-provisions an
+account, and starts sharing — no admin, no signup page, no token to go
+fetch first. Public and read-only by default — anyone with the URL can
+watch, like a stream; nobody can type into it. Pass `OPENGENT_WRITABLE=1`
+if you want authenticated viewers to be able to type instead.
 
 ```
-your terminal is live:
+your terminal is live — public, read-only:
 
     https://yourdomain.com/yourname/
-
-    user: yourname
-    pass: <generated>
 ```
 
 Prefer a non-interactive one-liner (scripting, CI, or an admin-issued
@@ -48,7 +47,8 @@ OPENGENT_SERVER=yourdomain.com ./install.sh stop yourname
 ```
 
 - **ttyd** runs locally on the client, serving one pty over HTTP/WebSocket,
-  password-protected, mounted at `/username`.
+  mounted at `/username` — public and read-only by default (`OPENGENT_WRITABLE=1`
+  for password-gated write access).
 - **frpc/frps** ([fatedier/frp](https://github.com/fatedier/frp)) punches a
   TCP tunnel from the client to the VPS — works from behind NAT/CGNAT (phones
   on mobile data, laptops on home wifi), no port-forwarding needed. `frps`
@@ -63,8 +63,8 @@ OPENGENT_SERVER=yourdomain.com ./install.sh stop yourname
   load balancer as usage grows — see `server/setup.sh` for how a single
   box is provisioned, and its header comment for adding more relay nodes.
 
-Each user gets their own ttyd process, own port, own path, own basic-auth
-credentials. No shared shell, no shared session.
+Each user gets their own ttyd process, own port, own path. No shared
+shell, no shared session.
 
 ## Server setup (one-time, admin)
 
@@ -115,7 +115,7 @@ the server.
 `mcp/` exposes the same functionality as MCP tools, so an AI agent (Claude
 Code, Claude Desktop, etc.) can share its own terminal on demand:
 
-- `opengent_share(username, server?, frpToken?)` — start sharing, returns the URL + credentials
+- `opengent_share(username, server?, token?, writable?)` — start sharing (self-provisions an account if `token` isn't given), returns the public URL
 - `opengent_stop(username, server?)` — stop sharing, release the slug
 - `opengent_list()` — list shares started on this machine and whether they're still running
 
@@ -148,19 +148,24 @@ CLI flow above.
 
 ## Security notes
 
-- `OPENGENT_FRP_TOKEN` is still one shared secret for every client — it
-  only gates opening an frp tunnel at all (further bounded by
-  `allowPorts` and `proxyBindAddr`, so a leaked one can't reach anything
-  off the relay's tunnel range). Rotate it if it leaks.
-- Claiming a username requires `OPENGENT_ACCOUNT_TOKEN`, issued per
-  account via `create-user.sh` (not shared) — deactivate one account
-  (`UPDATE users SET active = false ...`) without touching anyone else's,
-  and each account is capped at `max_slugs` concurrent shares.
-- ttyd's `-c user:pass` is HTTP basic auth over TLS (fine) but not
-  brute-force rate-limited. Consider fronting with Caddy's `basicauth` or
-  fail2ban for anything internet-facing long-term.
-- Whoever connects to `/username` gets a real shell as whatever user ran
-  `install.sh`. Treat the link like a root password.
+- Terminals are read-only by default (`ttyd` without `-W`) — connecting
+  to `/username` lets you watch, not type. Safe to hand the link out
+  publicly, same as a stream URL.
+- `OPENGENT_WRITABLE=1` changes that: viewers who supply the printed
+  `user:pass` (HTTP basic auth over TLS) can type into a real shell as
+  whatever user ran `install.sh`. Treat that link+password like a root
+  password, and note basic auth isn't brute-force rate-limited — front
+  it with Caddy's `basicauth` or fail2ban for anything long-term.
+- The fleet-wide frp token gates opening a tunnel at all (further
+  bounded by `allowPorts` and `proxyBindAddr`, so a leaked one can't
+  reach anything off the relay's tunnel range) — but `/api/signup`
+  hands it to anyone who asks, by design, so it's no longer really
+  secret. Rotate it (`frps.toml` + every relay node) if self-serve
+  signup itself needs to be shut off, not just the token.
+- Self-serve accounts (`/api/signup`) get a 1-slug quota and are rate
+  limited at 5 signups/hour/IP. Admin-issued accounts (`create-user.sh`)
+  aren't shared and can be deactivated (`UPDATE users SET active = false
+  ...`) or given a higher `max_slugs` without touching anyone else's.
 
 ## License
 

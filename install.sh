@@ -3,9 +3,10 @@
 #
 # Usage:
 #   curl -sL https://SERVER/install.sh | bash
-#     — the only thing you need to paste. Asks for a username (and
-#       optionally a password) interactively and self-provisions an
-#       account, no admin needed.
+#     — the only thing you need to paste. Asks for a username interactively
+#       and self-provisions an account, no admin needed. Terminal is public
+#       and read-only by default — anyone with the URL can watch, like a
+#       stream; nobody can type into it.
 #   curl -sL https://SERVER/install.sh | OPENGENT_TOKEN=xxx bash -s -- USERNAME
 #     — non-interactive, for an admin-issued token or scripting.
 #   ./install.sh [USERNAME]        # or run locally after cloning
@@ -18,6 +19,8 @@
 #                     when this script is fetched via curl from your server;
 #                     only set it by hand when running a local clone (required)
 #   OPENGENT_SHELL    command to run in the shared terminal (default: your $SHELL)
+#   OPENGENT_WRITABLE set to 1 to let (password-authenticated) viewers type
+#                     into this terminal instead of just watching it
 
 set -euo pipefail
 
@@ -28,9 +31,7 @@ die() { echo "error: $*" >&2; exit 1; }
 
 # Reads a line from the real keyboard even when this script's own stdin is
 # the curl pipe feeding bash — `read` alone would consume script bytes.
-tty_read() {
-  if [ -n "${2:-}" ]; then read -rs "$1" < /dev/tty; else read -r "$1" < /dev/tty; fi
-}
+tty_read() { read -r "$1" < /dev/tty; }
 
 [ "${1:-}" = "stop" ] && { shift; ACTION=stop; } || ACTION=start
 USERNAME="${1:-}"
@@ -164,18 +165,21 @@ REVOKE_TOKEN="$(echo "$RESP" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)"
 [ -n "$PORT" ] || die "bad response from server: $RESP"
 echo "{\"revokeToken\":\"$REVOKE_TOKEN\",\"port\":$PORT}" > "$STATE_DIR/meta.json"
 
-# --- credentials -----------------------------------------------------------
+# --- credentials -------------------------------------------------------
+# Public and read-only by default — like watching a stream, not remote-
+# controlling someone's shell. ttyd is readonly unless given -W, so the
+# only thing a password would gate here is *watching*, which defeats the
+# point of a public terminal directory. Set OPENGENT_WRITABLE=1 to instead
+# let (authenticated) viewers type into this terminal.
+WRITABLE="${OPENGENT_WRITABLE:-0}"
+TTYD_FLAGS=(-p "$PORT" -i 127.0.0.1 -b "/$USERNAME")
 PASS=""
-if [ "$INTERACTIVE" = 1 ]; then
-  echo "pick a password for your terminal (blank = auto-generate):"
-  printf '> ' > /dev/tty
-  tty_read PASS_INPUT hide
-  echo > /dev/tty
-  PASS="$PASS_INPUT"
+if [ "$WRITABLE" = 1 ]; then
+  PASS="$(head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)"
+  echo "$PASS" > "$STATE_DIR/password"
+  chmod 600 "$STATE_DIR/password"
+  TTYD_FLAGS+=(-W -c "$USERNAME:$PASS")
 fi
-[ -n "$PASS" ] || PASS="$(head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)"
-echo "$PASS" > "$STATE_DIR/password"
-chmod 600 "$STATE_DIR/password"
 
 # --- write frpc config + start ---------------------------------------------
 cat > "$STATE_DIR/frpc.toml" <<EOF
@@ -198,15 +202,16 @@ echo $! > "$STATE_DIR/frpc.pid"
 disown 2>/dev/null || true
 
 echo "==> starting ttyd on 127.0.0.1:$PORT"
-nohup ttyd -p "$PORT" -i 127.0.0.1 -b "/$USERNAME" -c "$USERNAME:$PASS" "${OPENGENT_SHELL:-$SHELL}" \
+nohup ttyd "${TTYD_FLAGS[@]}" "${OPENGENT_SHELL:-$SHELL}" \
   >"$STATE_DIR/ttyd.log" 2>&1 &
 echo $! > "$STATE_DIR/ttyd.pid"
 disown 2>/dev/null || true
 
 sleep 1
-cat <<EOF
+if [ "$WRITABLE" = 1 ]; then
+  cat <<EOF
 
-==> your terminal is live:
+==> your terminal is live (writable — viewers can type):
 
     https://$SERVER/$USERNAME/
 
@@ -216,3 +221,14 @@ cat <<EOF
 Stop sharing:
     OPENGENT_SERVER=$SERVER ./install.sh stop $USERNAME
 EOF
+else
+  cat <<EOF
+
+==> your terminal is live — public, read-only:
+
+    https://$SERVER/$USERNAME/
+
+Stop sharing:
+    OPENGENT_SERVER=$SERVER ./install.sh stop $USERNAME
+EOF
+fi
