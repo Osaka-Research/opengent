@@ -182,12 +182,9 @@
   <pre><code>curl -sL https://yourdomain.com/install.sh \
   | OPENGENT_SERVER=yourdomain.com OPENGENT_FRP_TOKEN=&lt;given-by-admin&gt; \
     bash -s -- yourname</code></pre>
-  <pre><code>your terminal is live:
+  <pre><code>your terminal is live — public, read-only:
 
-    https://yourdomain.com/yourname/
-
-    user: yourname
-    pass: &lt;generated&gt;</code></pre>
+    https://yourdomain.com/yourname/</code></pre>
   <p>Stop sharing any time: <code>OPENGENT_SERVER=yourdomain.com ./install.sh stop yourname</code></p>
 
   <h2>How it works</h2>
@@ -202,7 +199,8 @@
 </code></pre>
   </div>
   <p style="margin-top:14px">
-    <strong>ttyd</strong> serves one password-protected pty over HTTP/WebSocket, locally.
+    <strong>ttyd</strong> serves the pty over HTTP/WebSocket, locally — read-only by
+    default, plus an optional second, unguessable writable link.
     <strong>frp</strong> punches a TCP tunnel out through NAT/CGNAT — works from a phone
     on mobile data. <strong>Caddy</strong> terminates TLS on the VPS and routes each
     user's path to their tunneled port. A tiny, dependency-free <strong>register-api</strong>
@@ -262,8 +260,8 @@ sudo OPENGENT_DOMAIN=yourdomain.com ./setup.sh</code></pre>
     <ul>
       <li><code>OPENGENT_FRP_TOKEN</code> is one shared secret for every client — rotate it if it leaks.</li>
       <li>the registration endpoint is unauthenticated — anyone reaching it can claim a free username.</li>
-      <li>ttyd basic auth isn't brute-force rate-limited by default.</li>
-      <li>whoever opens the link gets a real shell as whoever ran <code>install.sh</code> — treat it like a password.</li>
+      <li>the writable link (<code>OPENGENT_WRITABLE=1</code>) has no password or approval step — the URL itself is the credential.</li>
+      <li>whoever opens the writable link gets a real shell as whoever ran <code>install.sh</code> — treat it like a root password.</li>
     </ul>
   </div>
 

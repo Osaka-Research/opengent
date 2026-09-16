@@ -60,8 +60,10 @@ https://${OPENGENT_DOMAIN}/<username>/. Pass one explicitly instead
 (bash -s -- <username>) to choose your own.
 
 The terminal is read-only for viewers by default (watch, not type). Add
-OPENGENT_WRITABLE=1 before the command to allow authenticated viewers to
-type into it instead.
+OPENGENT_WRITABLE=1 before the command to also get a second, unguessable
+writable link (https://${OPENGENT_DOMAIN}/<random-hash>/) — anyone who
+has that URL can type, no password; the public /<username>/ link stays
+read-only.
 
 Stop sharing:
 
@@ -123,7 +125,9 @@ async function lookupTarget(slug) {
 // heartbeat.
 async function listActiveTunnels() {
   const { rows } = await pool.query(
-    'SELECT slug, last_seen FROM tunnels ORDER BY last_seen DESC LIMIT 200'
+    // unlisted slugs (the random-hash writable link) never show up here —
+    // the whole point is that only someone holding the URL can find it.
+    'SELECT slug, last_seen FROM tunnels WHERE NOT unlisted ORDER BY last_seen DESC LIMIT 200'
   );
   return rows;
 }

@@ -13,7 +13,8 @@ No prompts, nothing to type: derives a username from this machine
 starts sharing — no admin, no signup page, no token to go fetch first.
 Public and read-only by default — anyone with the URL can watch, like
 a stream; nobody can type into it. Pass `OPENGENT_WRITABLE=1` if you
-want authenticated viewers to be able to type instead, or
+also want a second, unguessable writable link — anyone holding *that*
+URL can type, no password, the link itself is the credential — or
 `bash -s -- yourname` to pick your own username.
 
 Run it from inside a `tmux` pane and it streams *that exact pane* — an
@@ -55,9 +56,13 @@ OPENGENT_SERVER=yourdomain.com ./install.sh stop yourname
                               https://domain.com/yourname
 ```
 
-- **ttyd** runs locally on the client, serving one pty over HTTP/WebSocket,
-  mounted at `/username` — public and read-only by default (`OPENGENT_WRITABLE=1`
-  for password-gated write access).
+- **ttyd** runs locally on the client. The public share is always one ttyd
+  process, read-only, mounted at `/username`. `OPENGENT_WRITABLE=1` starts a
+  second ttyd process, writable, mounted at a random unguessable slug
+  instead of a username — no password, the URL itself is the credential.
+  Both processes attach to the same `tmux` session (created automatically
+  if you weren't already in one) so the writable link controls exactly
+  what the read-only link shows.
 - **frpc/frps** ([fatedier/frp](https://github.com/fatedier/frp)) punches a
   TCP tunnel from the client to the VPS — works from behind NAT/CGNAT (phones
   on mobile data, laptops on home wifi), no port-forwarding needed. `frps`
@@ -162,24 +167,31 @@ CLI flow above.
 
 ## Security notes
 
-- Terminals are read-only by default (`ttyd` without `-W`) — connecting
-  to `/username` lets you watch, not type. Safe to hand the link out
-  publicly, same as a stream URL.
-- `OPENGENT_WRITABLE=1` changes that: viewers who supply the printed
-  `user:pass` (HTTP basic auth over TLS) can type into a real shell as
-  whatever user ran `install.sh`. Treat that link+password like a root
-  password, and note basic auth isn't brute-force rate-limited — front
-  it with Caddy's `basicauth` or fail2ban for anything long-term.
+- The public `/username` link is always read-only (`ttyd` without `-W`) —
+  connecting lets you watch, not type. Safe to hand out publicly, same as
+  a stream URL.
+- `OPENGENT_WRITABLE=1` adds a second link at a random ~103-bit slug
+  (`/<random-hash>/`, unlisted — it never appears in the homepage
+  directory) that's writable with no further auth: whoever has that URL
+  types into a real shell as whatever user ran `install.sh`. There's no
+  approval step and no password — the URL itself is the full credential,
+  so treat it like a root password: don't post it anywhere public, and
+  anyone it leaks to (browser history, a proxy log, a pasted screenshot)
+  has the same access you do until you `stop` the share.
+- The public link can still take one-off control requests from viewers
+  (`install.sh requests`/`grant`/`deny`) independent of the writable link
+  — that stays an explicit, time-boxed, owner-approved grant.
 - The fleet-wide frp token gates opening a tunnel at all (further
   bounded by `allowPorts` and `proxyBindAddr`, so a leaked one can't
   reach anything off the relay's tunnel range) — but `/api/signup`
   hands it to anyone who asks, by design, so it's no longer really
   secret. Rotate it (`frps.toml` + every relay node) if self-serve
   signup itself needs to be shut off, not just the token.
-- Self-serve accounts (`/api/signup`) get a 1-slug quota and are rate
-  limited at 5 signups/hour/IP. Admin-issued accounts (`create-user.sh`)
-  aren't shared and can be deactivated (`UPDATE users SET active = false
-  ...`) or given a higher `max_slugs` without touching anyone else's.
+- Self-serve accounts (`/api/signup`) get a 2-slug quota (username +
+  the optional writable link) and are rate limited at 5 signups/hour/IP.
+  Admin-issued accounts (`create-user.sh`) aren't shared and can be
+  deactivated (`UPDATE users SET active = false ...`) or given a higher
+  `max_slugs` without touching anyone else's.
 
 ## License
 

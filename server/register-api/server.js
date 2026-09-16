@@ -29,7 +29,10 @@ if (!FRP_TOKEN) { console.error('OPENGENT_FRP_TOKEN not set'); process.exit(1); 
 
 const SIGNUP_RATE_LIMIT_WINDOW_S = 3600;
 const SIGNUP_RATE_LIMIT_MAX = 5;
-const SELF_SERVE_MAX_SLUGS = 1;
+// 2, not 1: one public read-only slug (username) plus one unlisted slug for
+// the optional writable link (OPENGENT_WRITABLE=1) — same account, no extra
+// signup step.
+const SELF_SERVE_MAX_SLUGS = 2;
 const CONTROL_REQUEST_WINDOW_S = 3600;
 const CONTROL_REQUEST_MAX = 20;
 const CONTROL_GRANT_DEFAULT_S = 600;
@@ -160,7 +163,7 @@ async function firstFreePort(nodeId, portMin, portMax) {
   return null;
 }
 
-async function registerSlug(slug, ownerUserId) {
+async function registerSlug(slug, ownerUserId, unlisted) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const node = await allocateOnLeastLoadedNode();
     const port = await firstFreePort(node.id, node.port_min, node.port_max);
@@ -169,8 +172,8 @@ async function registerSlug(slug, ownerUserId) {
     const rawToken = crypto.randomBytes(16).toString('hex');
     try {
       await pool.query(
-        `INSERT INTO tunnels (slug, relay_node_id, owner_user_id, port, token_hash) VALUES ($1, $2, $3, $4, $5)`,
-        [slug, node.id, ownerUserId, port, sha256(rawToken)]
+        `INSERT INTO tunnels (slug, relay_node_id, owner_user_id, port, token_hash, unlisted) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [slug, node.id, ownerUserId, port, sha256(rawToken), Boolean(unlisted)]
       );
       return { slug, port, token: rawToken, host: node.host, internalHost: node.internal_host };
     } catch (e) {
@@ -221,7 +224,7 @@ const server = http.createServer((req, res) => {
             // would leak an existing user's revoke token to anyone who
             // guesses their slug.
             if (body.token && safeEqual(sha256(body.token), existing.token_hash)) {
-              await pool.query('UPDATE tunnels SET last_seen = now() WHERE slug = $1', [slug]);
+              await pool.query('UPDATE tunnels SET last_seen = now(), unlisted = $2 WHERE slug = $1', [slug, Boolean(body.unlisted)]);
               await setRouteCache(slug, existing.internal_host, existing.port); // re-affirm in case the cache entry expired/was evicted
               return json(res, 200, { slug, port: existing.port, token: body.token, reused: true });
             }
@@ -233,7 +236,7 @@ const server = http.createServer((req, res) => {
             return json(res, 403, { error: `account quota reached (${account.max_slugs} slugs)` });
           }
 
-          const result = await registerSlug(slug, account.id);
+          const result = await registerSlug(slug, account.id, body.unlisted);
           await setRouteCache(result.slug, result.internalHost, result.port);
           return json(res, 201, { slug: result.slug, port: result.port, token: result.token, reused: false });
         } catch (e) {

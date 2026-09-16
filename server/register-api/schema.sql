@@ -34,12 +34,14 @@ CREATE TABLE IF NOT EXISTS tunnels (
   owner_user_id  INT REFERENCES users(id),
   port           INT NOT NULL,
   token_hash     TEXT NOT NULL,           -- sha256(revoke token), never store raw
+  unlisted       BOOLEAN NOT NULL DEFAULT false, -- excluded from the homepage's live directory
   created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
   last_seen      TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (relay_node_id, port)
 );
 
 ALTER TABLE tunnels ADD COLUMN IF NOT EXISTS owner_user_id INT REFERENCES users(id);
+ALTER TABLE tunnels ADD COLUMN IF NOT EXISTS unlisted BOOLEAN NOT NULL DEFAULT false;
 
 CREATE INDEX IF NOT EXISTS tunnels_relay_node_idx ON tunnels (relay_node_id);
 CREATE INDEX IF NOT EXISTS tunnels_owner_idx ON tunnels (owner_user_id);

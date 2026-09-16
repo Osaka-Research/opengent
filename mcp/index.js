@@ -44,12 +44,14 @@ server.registerTool(
     description:
       'Share this machine\'s terminal as a public URL (https://SERVER/username/) via opengent. ' +
       'Starts ttyd + an frp tunnel locally and registers the slug with the relay. ' +
-      'Public and read-only by default — anyone with the URL can watch, nobody can type into it.',
+      'The public link is always read-only — anyone with it can watch, nobody can type into it. ' +
+      'Pass writable:true to also get a second, unguessable link that lets anyone holding it type — ' +
+      'the URL itself is the credential, no password.',
     inputSchema: z.object({
       username: z.string().min(3).max(20).regex(/^[a-z0-9][a-z0-9-]*$/, 'lowercase letters/digits/hyphen'),
       server: z.string().optional().describe('opengent relay domain, overrides OPENGENT_SERVER env'),
       token: z.string().optional().describe('frp_token.account_token from an admin, overrides OPENGENT_TOKEN env — omit to self-provision an account automatically'),
-      writable: z.boolean().optional().describe('let (password-authenticated) viewers type into this terminal instead of just watching it')
+      writable: z.boolean().optional().describe('also generate a second, unguessable link that anyone holding it can type into (no password — the URL is the credential)')
     })
   },
   async ({ username, server: srv, token, writable }) => {
@@ -63,10 +65,15 @@ server.registerTool(
     const { ok, stdout, stderr } = await runInstallSh([username], extraEnv);
     if (!ok) return text(`failed to start share: ${stderr || stdout}`);
 
-    const url = (stdout.match(/https:\/\/\S+/) || [])[0];
-    const pass = (stdout.match(/pass:\s*(\S+)/) || [])[1];
-    if (!url) return text(stdout);
-    return text(pass ? `Live at ${url}\nuser: ${username}\npass: ${pass}` : `Live at ${url} (public, read-only)`);
+    const urls = stdout.match(/https:\/\/\S+/g) || [];
+    const readUrl = urls[0];
+    const writeUrl = urls[1];
+    if (!readUrl) return text(stdout);
+    return text(
+      writeUrl
+        ? `Read-only: ${readUrl}\nWritable (keep secret): ${writeUrl}`
+        : `Live at ${readUrl} (public, read-only)`
+    );
   }
 );
 

@@ -28,8 +28,11 @@
 #                     to the current tmux pane if run from inside one — so
 #                     sharing whatever's already running there needs no
 #                     flags at all; otherwise your plain $SHELL)
-#   OPENGENT_WRITABLE set to 1 to let (password-authenticated) viewers type
-#                     into this terminal instead of just watching it
+#   OPENGENT_WRITABLE set to 1 to also print a second, unguessable writable
+#                     link (https://SERVER/<random-hash>/) — anyone holding
+#                     that URL can type, no password needed; keep it secret.
+#                     The public https://SERVER/USERNAME/ link stays
+#                     read-only either way.
 
 set -euo pipefail
 
@@ -106,12 +109,20 @@ STATE_DIR="$STATE_ROOT/$USERNAME"
 if [ "$ACTION" = stop ]; then
   echo "==> stopping $USERNAME"
   [ -f "$STATE_DIR/ttyd.pid" ] && kill "$(cat "$STATE_DIR/ttyd.pid")" 2>/dev/null
+  [ -f "$STATE_DIR/write-ttyd.pid" ] && kill "$(cat "$STATE_DIR/write-ttyd.pid")" 2>/dev/null
   [ -f "$STATE_DIR/frpc.pid" ] && kill "$(cat "$STATE_DIR/frpc.pid")" 2>/dev/null
   [ -f "$STATE_DIR/control-watch.pid" ] && kill "$(cat "$STATE_DIR/control-watch.pid")" 2>/dev/null
+  [ -f "$STATE_DIR/tmux_share_session" ] && tmux kill-session -t "$(cat "$STATE_DIR/tmux_share_session")" 2>/dev/null
   if [ -f "$STATE_DIR/meta.json" ]; then
     TOKEN=$(grep -o '"revokeToken":"[^"]*"' "$STATE_DIR/meta.json" | cut -d'"' -f4)
     curl -sf -X DELETE "https://$SERVER/api/register/$USERNAME" \
       -H 'Content-Type: application/json' -d "{\"token\":\"$TOKEN\"}" >/dev/null || true
+  fi
+  if [ -f "$STATE_DIR/write_meta.json" ] && [ -f "$STATE_DIR/write_slug" ]; then
+    WRITE_SLUG_STOP="$(cat "$STATE_DIR/write_slug")"
+    WTOKEN=$(grep -o '"revokeToken":"[^"]*"' "$STATE_DIR/write_meta.json" | cut -d'"' -f4)
+    curl -sf -X DELETE "https://$SERVER/api/register/$WRITE_SLUG_STOP" \
+      -H 'Content-Type: application/json' -d "{\"token\":\"$WTOKEN\"}" >/dev/null || true
   fi
   rm -rf "$STATE_DIR"
   echo "==> stopped. slug released."
@@ -255,6 +266,36 @@ REVOKE_TOKEN="$(echo "$RESP" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)"
 [ -n "$PORT" ] || die "bad response from server: $RESP"
 echo "{\"revokeToken\":\"$REVOKE_TOKEN\",\"port\":$PORT}" > "$STATE_DIR/meta.json"
 
+# --- register a second, unlisted slug for the writable link ----------------
+# A random-hash slug instead of a password: capability-URL style — anyone
+# holding the link can type, nobody has to type or store a password. Kept
+# out of the homepage directory (unlisted:true) so it can't be found by
+# browsing, only by having the link. Same account as the primary slug —
+# SELF_SERVE_MAX_SLUGS covers both.
+WRITABLE="${OPENGENT_WRITABLE:-0}"
+WRITE_SLUG=""
+WRITE_PORT=""
+if [ "$WRITABLE" = 1 ]; then
+  WRITE_SLUG_FILE="$STATE_DIR/write_slug"
+  if [ -f "$WRITE_SLUG_FILE" ]; then
+    WRITE_SLUG="$(cat "$WRITE_SLUG_FILE")"
+  else
+    WRITE_SLUG="$(head -c 32 /dev/urandom | base64 | tr '[:upper:]' '[:lower:]' | tr -dc 'a-z0-9' | head -c 20)"
+    printf '%s' "$WRITE_SLUG" > "$WRITE_SLUG_FILE"
+  fi
+
+  PREV_WRITE_TOKEN=""
+  [ -f "$STATE_DIR/write_meta.json" ] && PREV_WRITE_TOKEN="$(grep -o '"revokeToken":"[^"]*"' "$STATE_DIR/write_meta.json" | cut -d'"' -f4)"
+  WRITE_RESP="$(curl -sf -X POST "https://$SERVER/api/register" \
+    -H 'Content-Type: application/json' \
+    -d "{\"username\":\"$WRITE_SLUG\",\"authToken\":\"$ACCOUNT_TOKEN\",\"token\":\"$PREV_WRITE_TOKEN\",\"unlisted\":true}")" \
+    || die "registering the writable link failed"
+  WRITE_PORT="$(echo "$WRITE_RESP" | grep -o '"port":[0-9]*' | grep -o '[0-9]*')"
+  WRITE_REVOKE_TOKEN="$(echo "$WRITE_RESP" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)"
+  [ -n "$WRITE_PORT" ] || die "bad response from server for writable link: $WRITE_RESP"
+  echo "{\"revokeToken\":\"$WRITE_REVOKE_TOKEN\",\"port\":$WRITE_PORT}" > "$STATE_DIR/write_meta.json"
+fi
+
 # --- write frpc config + start ---------------------------------------------
 cat > "$STATE_DIR/frpc.toml" <<EOF
 serverAddr = "$SERVER"
@@ -269,6 +310,17 @@ localIP = "127.0.0.1"
 localPort = $PORT
 remotePort = $PORT
 EOF
+if [ -n "$WRITE_SLUG" ]; then
+  cat >> "$STATE_DIR/frpc.toml" <<EOF
+
+[[proxies]]
+name = "$WRITE_SLUG"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = $WRITE_PORT
+remotePort = $WRITE_PORT
+EOF
+fi
 
 echo "==> starting frpc"
 nohup "$FRPC_BIN" -c "$STATE_DIR/frpc.toml" >"$STATE_DIR/frpc.log" 2>&1 &
@@ -288,35 +340,40 @@ if [ -z "$SHARE_CMD" ] && [ -n "${TMUX:-}" ]; then
 fi
 [ -n "$SHARE_CMD" ] || SHARE_CMD="$SHELL"
 
-# --- credentials ---------------------------------------------------------
-# Public and read-only by default, always — like watching a stream, not
+# A writable link means two ttyd processes (read-only public link + writable
+# link) — they must serve the *same* session, not two independent shells,
+# or the writable link wouldn't control anything the read-only viewers can
+# see. tmux is what lets several ttyd/pty clients multiplex onto one
+# session, so if we're not already inside one (the branch above), wrap
+# SHARE_CMD in a fresh tmux session here.
+if [ -n "$WRITE_SLUG" ] && [[ "$SHARE_CMD" != tmux\ attach* ]]; then
+  command -v tmux >/dev/null || { echo "==> installing tmux"; $PKG_INSTALL tmux; }
+  command -v tmux >/dev/null || die "tmux is required for OPENGENT_WRITABLE=1 (to multiplex the read-only and writable links onto one session) — install it manually"
+  TMUX_SHARE_SESSION="opengent-$USERNAME"
+  if ! tmux has-session -t "$TMUX_SHARE_SESSION" 2>/dev/null; then
+    tmux new-session -d -s "$TMUX_SHARE_SESSION" "$SHARE_CMD"
+  fi
+  echo "$TMUX_SHARE_SESSION" > "$STATE_DIR/tmux_share_session"
+  SHARE_CMD="tmux attach -t $TMUX_SHARE_SESSION -r"
+fi
+
+# --- start the public terminal -------------------------------------------
+# Public and read-only, always — like watching a stream, not
 # remote-controlling someone's shell. ttyd is readonly unless given -W.
 # (Tried making tmux-attach streams writable-but-tmux-protected so viewers
 # could scroll; reverted — it quietly made every share started from
 # inside a tmux session writable to anonymous viewers by default, which
 # is a worse default than "no scrollback for tmux streams".)
-WRITABLE="${OPENGENT_WRITABLE:-0}"
-TTYD_FLAGS=(-p "$PORT" -i 127.0.0.1 -b "/$USERNAME")
-PASS=""
-if [ "$WRITABLE" = 1 ]; then
-  PASS="$(head -c 24 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)"
-  echo "$PASS" > "$STATE_DIR/password"
-  chmod 600 "$STATE_DIR/password"
-  TTYD_FLAGS+=(-W -c "$USERNAME:$PASS")
-fi
-
 echo "==> starting ttyd on 127.0.0.1:$PORT"
-nohup ttyd "${TTYD_FLAGS[@]}" $SHARE_CMD \
+nohup ttyd -p "$PORT" -i 127.0.0.1 -b "/$USERNAME" $SHARE_CMD \
   >"$STATE_DIR/ttyd.log" 2>&1 &
 echo $! > "$STATE_DIR/ttyd.pid"
 disown 2>/dev/null || true
 
-# Readonly shares can take control requests from viewers — this watcher
+# The public link can take control requests from viewers — this watcher
 # polls for an approved grant and restarts ttyd writable/readonly to
-# match. Only for the default readonly mode; OPENGENT_WRITABLE=1 is
-# already fully open, nothing to escalate.
-if [ "$WRITABLE" != 1 ]; then
-  cat > "$STATE_DIR/control-watch.sh" <<WATCHEOF
+# match, for the duration of the grant.
+cat > "$STATE_DIR/control-watch.sh" <<WATCHEOF
 #!/usr/bin/env bash
 SERVER="$SERVER"
 USERNAME="$USERNAME"
@@ -343,28 +400,24 @@ while true; do
   fi
 done
 WATCHEOF
-  chmod +x "$STATE_DIR/control-watch.sh"
-  nohup "$STATE_DIR/control-watch.sh" >"$STATE_DIR/control-watch.log" 2>&1 &
-  echo $! > "$STATE_DIR/control-watch.pid"
+chmod +x "$STATE_DIR/control-watch.sh"
+nohup "$STATE_DIR/control-watch.sh" >"$STATE_DIR/control-watch.log" 2>&1 &
+echo $! > "$STATE_DIR/control-watch.pid"
+disown 2>/dev/null || true
+
+# --- start the writable link, if requested --------------------------------
+# No password: the URL itself is the credential (a ~103-bit random slug).
+# Anyone who has it can type; nobody has to type or store a password.
+if [ -n "$WRITE_SLUG" ]; then
+  echo "==> starting writable ttyd on 127.0.0.1:$WRITE_PORT"
+  nohup ttyd -p "$WRITE_PORT" -i 127.0.0.1 -b "/$WRITE_SLUG" -W $SHARE_CMD \
+    >"$STATE_DIR/write-ttyd.log" 2>&1 &
+  echo $! > "$STATE_DIR/write-ttyd.pid"
   disown 2>/dev/null || true
 fi
 
 sleep 1
-if [ "$WRITABLE" = 1 ]; then
-  cat <<EOF
-
-==> your terminal is live (writable — viewers can type):
-
-    https://$SERVER/$USERNAME/
-
-    user: $USERNAME
-    pass: $PASS
-
-Stop sharing:
-    OPENGENT_SERVER=$SERVER ./install.sh stop $USERNAME
-EOF
-else
-  cat <<EOF
+cat <<EOF
 
 ==> your terminal is live — public, read-only:
 
@@ -372,8 +425,18 @@ else
 
 A viewer can ask to type into it; check/approve with:
     OPENGENT_SERVER=$SERVER ./install.sh requests $USERNAME
+EOF
+if [ -n "$WRITE_SLUG" ]; then
+  cat <<EOF
+
+==> writable link (anyone with this URL can type, no password — keep it
+    secret, don't post it anywhere public):
+
+    https://$SERVER/$WRITE_SLUG/
+EOF
+fi
+cat <<EOF
 
 Stop sharing:
     OPENGENT_SERVER=$SERVER ./install.sh stop $USERNAME
 EOF
-fi
