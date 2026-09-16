@@ -316,7 +316,11 @@ function fetchConnectedProxyNames(node) {
         res.on('end', () => {
           try {
             const parsed = JSON.parse(data);
-            resolve(new Set((parsed.proxies || []).map((p) => p.name)));
+            // frps lists every proxy it has ever seen, online or not — a
+            // slug whose frpc died still shows up here with status
+            // "offline", so without this filter the sweep never sees it
+            // as missing and never deletes its row.
+            resolve(new Set((parsed.proxies || []).filter((p) => p.status === 'online').map((p) => p.name)));
           } catch (e) {
             console.error(`sweep: bad frps API response from node ${node.id}:`, e.message);
             resolve(null);

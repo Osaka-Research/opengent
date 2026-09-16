@@ -139,7 +139,10 @@ function fetchConnectedProxyNames(node) {
         res.on('end', () => {
           try {
             const parsed = JSON.parse(data);
-            resolve(new Set((parsed.proxies || []).map((p) => p.name)));
+            // frps lists every proxy it has ever seen, online or not —
+            // status distinguishes them, so filter to online before using
+            // this as a "what's actually connected right now" signal.
+            resolve(new Set((parsed.proxies || []).filter((p) => p.status === 'online').map((p) => p.name)));
           } catch (e) {
             console.error(`connected-proxy check: bad frps API response from node ${node.id}:`, e.message);
             resolve(null);
