@@ -308,7 +308,7 @@ disown 2>/dev/null || true
 SHARE_CMD="${OPENGENT_SHELL:-}"
 if [ -z "$SHARE_CMD" ] && [ -n "${TMUX:-}" ]; then
   TMUX_SESSION="$(tmux display-message -p '#S' 2>/dev/null || true)"
-  [ -n "$TMUX_SESSION" ] && SHARE_CMD="tmux attach -t $TMUX_SESSION -r"
+  [ -n "$TMUX_SESSION" ] && SHARE_CMD="tmux attach -t $TMUX_SESSION"
 fi
 [ -n "$SHARE_CMD" ] || SHARE_CMD="$SHELL"
 
@@ -326,16 +326,17 @@ if [ -n "$WRITE_SLUG" ] && [[ "$SHARE_CMD" != tmux\ attach* ]]; then
     tmux new-session -d -s "$TMUX_SHARE_SESSION" "$SHARE_CMD"
   fi
   echo "$TMUX_SHARE_SESSION" > "$STATE_DIR/tmux_share_session"
-  SHARE_CMD="tmux attach -t $TMUX_SHARE_SESSION -r"
+  SHARE_CMD="tmux attach -t $TMUX_SHARE_SESSION"
 fi
 
 # --- start the public terminal -------------------------------------------
 # Public and read-only, always — like watching a stream, not
-# remote-controlling someone's shell. ttyd is readonly unless given -W.
-# (Tried making tmux-attach streams writable-but-tmux-protected so viewers
-# could scroll; reverted — it quietly made every share started from
-# inside a tmux session writable to anonymous viewers by default, which
-# is a worse default than "no scrollback for tmux streams".)
+# remote-controlling someone's shell. The read-only guarantee comes
+# entirely from ttyd itself (it never forwards a keystroke to the pty
+# unless given -W) — deliberately not from tmux's own `-r` client flag,
+# which doesn't just stop that one client from typing, it blocks *all*
+# input into the session, including from another process's `tmux
+# send-keys` and from ttyd's own -W on the separate writable link below.
 echo "==> starting ttyd on 127.0.0.1:$PORT"
 nohup ttyd -p "$PORT" -i 127.0.0.1 -b "/$USERNAME" $SHARE_CMD \
   >"$STATE_DIR/ttyd.log" 2>&1 &
@@ -354,23 +355,7 @@ if [ -n "$WRITE_SLUG" ]; then
 fi
 
 sleep 1
-cat <<EOF
-
-==> your terminal is live — public, read-only:
-
-    https://$SERVER/$USERNAME/
-EOF
+echo "public link: https://$SERVER/$USERNAME/"
 if [ -n "$WRITE_SLUG" ]; then
-  cat <<EOF
-
-==> writable link (anyone with this URL can type, no password — keep it
-    secret, don't post it anywhere public):
-
-    https://$SERVER/$WRITE_SLUG/
-EOF
+  echo "private link: https://$SERVER/$WRITE_SLUG/"
 fi
-cat <<EOF
-
-Stop sharing:
-    OPENGENT_SERVER=$SERVER ./install.sh stop $USERNAME
-EOF
