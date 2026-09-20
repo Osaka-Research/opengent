@@ -220,7 +220,6 @@ if [ ! -x "$FRPC_BIN" ]; then
 fi
 
 # --- register with the relay ----------------------------------------------
-echo "==> registering '$USERNAME' with $SERVER"
 # If we've registered this slug before (meta.json survived a restart),
 # send its token back so the server can tell a legit retry apart from
 # someone else trying to grab our slug.
@@ -294,7 +293,6 @@ remotePort = $WRITE_PORT
 EOF
 fi
 
-echo "==> starting frpc"
 nohup "$FRPC_BIN" -c "$STATE_DIR/frpc.toml" >"$STATE_DIR/frpc.log" 2>&1 &
 echo $! > "$STATE_DIR/frpc.pid"
 disown 2>/dev/null || true
@@ -337,7 +335,6 @@ fi
 # which doesn't just stop that one client from typing, it blocks *all*
 # input into the session, including from another process's `tmux
 # send-keys` and from ttyd's own -W on the separate writable link below.
-echo "==> starting ttyd on 127.0.0.1:$PORT"
 nohup ttyd -p "$PORT" -i 127.0.0.1 -b "/$USERNAME" $SHARE_CMD \
   >"$STATE_DIR/ttyd.log" 2>&1 &
 echo $! > "$STATE_DIR/ttyd.pid"
@@ -347,7 +344,6 @@ disown 2>/dev/null || true
 # No password: the URL itself is the credential (a ~103-bit random slug).
 # Anyone who has it can type; nobody has to type or store a password.
 if [ -n "$WRITE_SLUG" ]; then
-  echo "==> starting writable ttyd on 127.0.0.1:$WRITE_PORT"
   nohup ttyd -p "$WRITE_PORT" -i 127.0.0.1 -b "/$WRITE_SLUG" -W $SHARE_CMD \
     >"$STATE_DIR/write-ttyd.log" 2>&1 &
   echo $! > "$STATE_DIR/write-ttyd.pid"
@@ -355,7 +351,7 @@ if [ -n "$WRITE_SLUG" ]; then
 fi
 
 sleep 1
-echo "public link: https://$SERVER/$USERNAME/"
+echo "public link (read-only, safe to share): https://$SERVER/$USERNAME/"
 if [ -n "$WRITE_SLUG" ]; then
-  echo "private link: https://$SERVER/$WRITE_SLUG/"
+  echo "private link (full control, keep secret): https://$SERVER/$WRITE_SLUG/"
 fi
