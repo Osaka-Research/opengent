@@ -44,8 +44,7 @@ const INSTALL_SH = RAW_INSTALL_SH.replace(
 // the always-visible (non-JS-gated) command on the homepage itself.
 const LLMS_TXT = `# ${OPENGENT_DOMAIN}
 
-> Turn a terminal into a public, watchable URL. Point a browser at
-> https://${OPENGENT_DOMAIN}/ to see who's live right now.
+> Turn a terminal into a public, watchable URL.
 
 To share this terminal (or, run from inside an existing tmux pane, stream
 that exact ongoing session — an AI chat, a build, anything), run this —
