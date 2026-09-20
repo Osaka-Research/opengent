@@ -82,6 +82,19 @@ That's real input into the exact session both links point at — anyone
 watching the public link sees it happen live, and the private link
 still works for a human to type into from a browser instead.
 
+Driving a link from a DIFFERENT machine than the one that created it
+(someone else's share, or your own from elsewhere)? tmux isn't
+reachable across machines, but the same script has a type/read
+subcommand for exactly this — no account, no browser, just the link:
+
+  curl -sL ${OPENGENT_DOMAIN}/i | bash -s -- type <writable-link> "claude"
+  curl -sL ${OPENGENT_DOMAIN}/i | bash -s -- type <writable-link> "how are you"
+  curl -sL ${OPENGENT_DOMAIN}/i | bash -s -- read <any-link>
+
+type sends the text + Enter and prints what came back (default 3s
+wait, override with a 3rd argument); read just watches without typing
+— works on a public link too, since watching doesn't need write access.
+
 Stop sharing:
 
   curl -sL ${OPENGENT_DOMAIN}/i | bash -s -- stop

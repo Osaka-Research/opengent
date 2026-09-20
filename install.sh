@@ -15,6 +15,12 @@
 #     — use an admin-issued token instead of self-provisioning.
 #   ./install.sh [USERNAME]        # or run locally after cloning
 #   ./install.sh stop USERNAME     # stop sharing + release the slug(s)
+#   curl -sL https://SERVER/install.sh | bash -s -- type <link> "<text>"
+#     — type into ANY opengent link (public or private, yours or someone
+#       else's, on this machine or a different one) and print what came
+#       back. No account, no share of your own needed. Same one script.
+#   curl -sL https://SERVER/install.sh | bash -s -- read <link>
+#     — just watch a link's current output for a few seconds, no typing.
 #
 # Env:
 #   OPENGENT_TOKEN    skip interactive signup and use this token instead
@@ -75,8 +81,142 @@ auto_base_username() {
 
 case "${1:-}" in
   stop) shift; ACTION=stop; USERNAME="${1:-}" ;;
+  type) shift; ACTION=type; TARGET_URL="${1:-}"; TYPE_TEXT="${2:-}"; WAIT_S="${3:-3}" ;;
+  read) shift; ACTION=read; TARGET_URL="${1:-}"; TYPE_TEXT=""; WAIT_S="${2:-3}" ;;
   *) ACTION=start; USERNAME="${1:-}" ;;
 esac
+
+# --- type/read: drive or watch ANY opengent link, no account needed -------
+# Doesn't touch the relay's HTTP API at all — the link itself is the only
+# credential ttyd checks. Same mechanism as opening the link in a browser
+# and typing, just scriptable: a minimal, dependency-free WebSocket client
+# (stdlib only — no `pip install`) that speaks ttyd's wire protocol
+# directly (a JSON init message, then messages prefixed with a command
+# byte; '0' is input/output).
+if [ "$ACTION" = type ] || [ "$ACTION" = read ]; then
+  [ -n "$TARGET_URL" ] || die "usage: install.sh $ACTION <link> $( [ "$ACTION" = type ] && printf '"<text>" ' )[wait-seconds]"
+  if ! command -v python3 >/dev/null; then
+    if [ -n "${TERMUX_VERSION:-}" ]; then pkg install -y python >/dev/null 2>&1
+    elif [ "$(uname -s)" = Linux ]; then sudo apt-get install -y python3 >/dev/null 2>&1
+    elif [ "$(uname -s)" = Darwin ]; then brew install python3 >/dev/null 2>&1
+    fi
+  fi
+  command -v python3 >/dev/null || die "python3 is required for '$ACTION' (stdlib only, no packages) — install it manually"
+
+  WS_CLIENT="$STATE_ROOT/bin/ws_client.py"
+  mkdir -p "$(dirname "$WS_CLIENT")"
+  if [ ! -s "$WS_CLIENT" ]; then
+    cat > "$WS_CLIENT" <<'PYEOF'
+#!/usr/bin/env python3
+import sys, socket, ssl, base64, os, struct, time
+from urllib.parse import urlsplit
+
+def ws_connect(url):
+    u = urlsplit(url)
+    tls = u.scheme in ("wss", "https")
+    host = u.hostname
+    port = u.port or (443 if tls else 80)
+    path = u.path or "/"
+    if u.query:
+        path += "?" + u.query
+    sock = socket.create_connection((host, port), timeout=10)
+    if tls:
+        sock = ssl.create_default_context().wrap_socket(sock, server_hostname=host)
+    key = base64.b64encode(os.urandom(16)).decode()
+    req = (f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\n"
+           f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\n"
+           "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Protocol: tty\r\n\r\n")
+    sock.sendall(req.encode())
+    buf = b""
+    while b"\r\n\r\n" not in buf:
+        chunk = sock.recv(4096)
+        if not chunk:
+            raise ConnectionError("connection closed during handshake")
+        buf += chunk
+    header, _, rest = buf.partition(b"\r\n\r\n")
+    if b" 101 " not in header.split(b"\r\n", 1)[0]:
+        raise ConnectionError(f"handshake failed: {header.splitlines()[0]!r}")
+    return sock, rest
+
+def send_frame(sock, data, opcode=0x2):
+    mask = os.urandom(4)
+    n = len(data)
+    if n < 126:
+        header = struct.pack("!BB", 0x80 | opcode, 0x80 | n)
+    elif n < 65536:
+        header = struct.pack("!BBH", 0x80 | opcode, 0x80 | 126, n)
+    else:
+        header = struct.pack("!BBQ", 0x80 | opcode, 0x80 | 127, n)
+    sock.sendall(header + mask + bytes(b ^ mask[i % 4] for i, b in enumerate(data)))
+
+class FrameReader:
+    def __init__(self, sock, leftover=b""):
+        self.sock = sock
+        self.buf = leftover
+    def _fill(self, n):
+        while len(self.buf) < n:
+            chunk = self.sock.recv(4096)
+            if not chunk:
+                raise ConnectionError("connection closed")
+            self.buf += chunk
+    def read_frame(self):
+        self._fill(2)
+        b0, b1 = self.buf[0], self.buf[1]
+        opcode, masked, length, pos = b0 & 0x0F, bool(b1 & 0x80), b1 & 0x7F, 2
+        if length == 126:
+            self._fill(pos + 2); length = struct.unpack("!H", self.buf[pos:pos+2])[0]; pos += 2
+        elif length == 127:
+            self._fill(pos + 8); length = struct.unpack("!Q", self.buf[pos:pos+8])[0]; pos += 8
+        mask_key = b""
+        if masked:
+            self._fill(pos + 4); mask_key = self.buf[pos:pos+4]; pos += 4
+        self._fill(pos + length)
+        payload = self.buf[pos:pos+length]
+        self.buf = self.buf[pos+length:]
+        if masked:
+            payload = bytes(b ^ mask_key[i % 4] for i, b in enumerate(payload))
+        return opcode, payload
+
+def main():
+    url, text = sys.argv[1], sys.argv[2] if len(sys.argv) > 2 else ""
+    wait_s = float(sys.argv[3]) if len(sys.argv) > 3 else 3.0
+    sock, leftover = ws_connect(url)
+    reader = FrameReader(sock, leftover)
+    sock.settimeout(0.3)
+    send_frame(sock, b'{"AuthToken":"","columns":120,"rows":30}', opcode=0x1)
+    if text:
+        time.sleep(0.4)
+        send_frame(sock, b"0" + text.encode() + b"\r", opcode=0x2)
+    end = time.time() + wait_s
+    out = []
+    while time.time() < end:
+        try:
+            opcode, payload = reader.read_frame()
+        except socket.timeout:
+            continue
+        except ConnectionError:
+            break
+        if opcode == 0x2 and payload[:1] == b"0":
+            out.append(payload[1:])
+        elif opcode == 0x8:
+            break
+    sys.stdout.buffer.write(b"".join(out))
+
+if __name__ == "__main__":
+    main()
+PYEOF
+  fi
+
+  WS_URL="${TARGET_URL%/}"
+  case "$WS_URL" in
+    https://*) WS_URL="wss://${WS_URL#https://}" ;;
+    http://*) WS_URL="ws://${WS_URL#http://}" ;;
+    *) die "link must start with https:// or http://" ;;
+  esac
+  python3 "$WS_CLIENT" "$WS_URL/ws" "$TYPE_TEXT" "$WAIT_S" || die "couldn't reach '$TARGET_URL' — check the link is right and still live"
+  exit 0
+fi
+
 if [ "$ACTION" != start ] && [ -z "$USERNAME" ]; then
   USERNAME="$(auto_base_username)"
   [ -d "$STATE_ROOT/$USERNAME" ] || die "usage: install.sh $ACTION ... USERNAME (no username given, and no auto-derived share '$USERNAME' found in $STATE_ROOT)"
@@ -505,7 +645,15 @@ if [ -n "${CLI_INSTALLED:-}" ] && command -v "$CLI_NAME" >/dev/null 2>&1; then
 fi
 
 if [ -n "$TMUX_SHARE_SESSION" ]; then
-  printf '\n%s\n' "${C_DIM}agent driving this (no browser needed):${C_RESET}"
+  printf '\n%s\n' "${C_DIM}drive it from here (no browser needed):${C_RESET}"
   printf '  tmux send-keys -t %s '"'"'<command>'"'"' Enter\n' "$TMUX_SHARE_SESSION"
   printf '  tmux capture-pane -t %s -p\n' "$TMUX_SHARE_SESSION"
+fi
+if [ -n "$WRITE_SLUG" ]; then
+  printf '\n%s\n' "${C_DIM}drive it from anywhere else (same script, just a link):${C_RESET}"
+  if [ -n "${CLI_INSTALLED:-}" ] && command -v "$CLI_NAME" >/dev/null 2>&1; then
+    printf '  %s type https://%s/%s/ '"'"'<command>'"'"'\n' "$CLI_NAME" "$SERVER" "$WRITE_SLUG"
+  else
+    printf '  curl -sL %s/i | bash -s -- type https://%s/%s/ '"'"'<command>'"'"'\n' "$SERVER" "$SERVER" "$WRITE_SLUG"
+  fi
 fi
