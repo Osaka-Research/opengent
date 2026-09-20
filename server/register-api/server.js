@@ -28,7 +28,12 @@ if (!REDIS_URL) { console.error('REDIS_URL not set'); process.exit(1); }
 if (!FRP_TOKEN) { console.error('OPENGENT_FRP_TOKEN not set'); process.exit(1); }
 
 const SIGNUP_RATE_LIMIT_WINDOW_S = 3600;
-const SIGNUP_RATE_LIMIT_MAX = 5;
+// CGNAT means many genuine, distinct users can share one IP, and a normal
+// user can easily retry a handful of times (typo'd username, re-running
+// after clearing local state, a second device behind the same NAT). 5 was
+// tight enough to hit routinely under completely legitimate use; this still
+// bounds automated mass account creation without punishing that.
+const SIGNUP_RATE_LIMIT_MAX = 30;
 // 2, not 1: one public read-only slug (username) plus one unlisted slug for
 // the optional writable link (OPENGENT_WRITABLE=1) — same account, no extra
 // signup step.
