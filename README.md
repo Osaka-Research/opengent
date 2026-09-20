@@ -29,6 +29,15 @@ public link (read-only, safe to share): https://yourdomain.com/yourname/
 private link (full control, keep secret): https://yourdomain.com/<random-hash>/
 ```
 
+The share always lives in a local tmux session named `opengent-yourname`
+(also printed in the output above), so the same agent/shell that ran the
+command can drive it directly — no browser needed:
+
+```
+tmux send-keys -t opengent-yourname 'claude' Enter
+tmux capture-pane -t opengent-yourname -p
+```
+
 Prefer an admin-issued token (scripting, CI, or a higher quota than the
 self-serve default) instead of self-provisioning?
 
@@ -60,8 +69,9 @@ OPENGENT_SERVER=yourdomain.com ./install.sh stop yourname
   unguessable slug instead of a username — no password, the URL itself is
   the credential (`OPENGENT_WRITABLE=0` to skip the second one). Both
   attach to the same `tmux` session (created automatically if you weren't
-  already in one) so the writable link controls exactly what the
-  read-only link shows.
+  already in one, and always — regardless of `OPENGENT_WRITABLE` — so
+  there's one universal way to drive a share with `tmux send-keys`) so
+  the writable link controls exactly what the read-only link shows.
 - **frpc/frps** ([fatedier/frp](https://github.com/fatedier/frp)) punches a
   TCP tunnel from the client to the VPS — works from behind NAT/CGNAT (phones
   on mobile data, laptops on home wifi), no port-forwarding needed. `frps`

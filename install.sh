@@ -301,21 +301,25 @@ disown 2>/dev/null || true
 # whatever's already running" a one-liner: run it from inside the tmux
 # session you want streamed, tmux or not otherwise required.
 SHARE_CMD="${OPENGENT_SHELL:-}"
+TMUX_SHARE_SESSION=""
 if [ -z "$SHARE_CMD" ] && [ -n "${TMUX:-}" ]; then
   TMUX_SESSION="$(tmux display-message -p '#S' 2>/dev/null || true)"
-  [ -n "$TMUX_SESSION" ] && SHARE_CMD="tmux attach -t $TMUX_SESSION"
+  if [ -n "$TMUX_SESSION" ]; then
+    SHARE_CMD="tmux attach -t $TMUX_SESSION"
+    TMUX_SHARE_SESSION="$TMUX_SESSION"
+  fi
 fi
 [ -n "$SHARE_CMD" ] || SHARE_CMD="$SHELL"
 
-# A writable link means two ttyd processes (read-only public link + writable
-# link) — they must serve the *same* session, not two independent shells,
-# or the writable link wouldn't control anything the read-only viewers can
-# see. tmux is what lets several ttyd/pty clients multiplex onto one
-# session, so if we're not already inside one (the branch above), wrap
-# SHARE_CMD in a fresh tmux session here.
-if [ -n "$WRITE_SLUG" ] && [[ "$SHARE_CMD" != tmux\ attach* ]]; then
+# Always multiplex through tmux — not just when a writable link is
+# requested — so there's one universal, well-known way to drive any
+# share programmatically (tmux send-keys/capture-pane against a fixed
+# session name) regardless of OPENGENT_WRITABLE or OPENGENT_SHELL.
+# Skipped only when already inside the tmux pane being shared (branch
+# above) — that pane already has a name, no new session needed.
+if [[ "$SHARE_CMD" != tmux\ attach* ]]; then
   command -v tmux >/dev/null || $PKG_INSTALL tmux >/dev/null 2>&1
-  command -v tmux >/dev/null || die "tmux is required for OPENGENT_WRITABLE=1 (to multiplex the read-only and writable links onto one session) — install it manually"
+  command -v tmux >/dev/null || die "tmux is required — install it manually"
   TMUX_SHARE_SESSION="opengent-$USERNAME"
   if ! tmux has-session -t "$TMUX_SHARE_SESSION" 2>/dev/null; then
     tmux new-session -d -s "$TMUX_SHARE_SESSION" "$SHARE_CMD"
@@ -389,4 +393,10 @@ if [ -n "$WRITE_SLUG" ]; then
 fi
 if [ -n "${CLI_INSTALLED:-}" ] && command -v "$CLI_NAME" >/dev/null 2>&1; then
   printf '\n%s %s%s%s\n' "${C_DIM}next time, just run:${C_RESET}" "$C_BOLD" "$CLI_NAME" "$C_RESET"
+fi
+
+if [ -n "$TMUX_SHARE_SESSION" ]; then
+  printf '\n%s\n' "${C_DIM}agent driving this (no browser needed):${C_RESET}"
+  printf '  tmux send-keys -t %s '"'"'<command>'"'"' Enter\n' "$TMUX_SHARE_SESSION"
+  printf '  tmux capture-pane -t %s -p\n' "$TMUX_SHARE_SESSION"
 fi

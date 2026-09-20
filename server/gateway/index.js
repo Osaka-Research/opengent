@@ -68,9 +68,9 @@ Optionally set OPENGENT_SHELL="<command>" to share a specific command
 
 Want to drive the shared session yourself (e.g. start \`claude\` in it and
 have a conversation), from the same agent/shell that ran the command
-above, with no browser? Unless OPENGENT_WRITABLE=0 was set, install.sh
-put that session in a local tmux session named \`opengent-<username>\`
-(pick the username, or read \`~/.opengent/<username>/tmux_share_session\`).
+above, with no browser? install.sh always puts that session in a local
+tmux session named \`opengent-<username>\` (also printed in its own
+output, and readable from \`~/.opengent/<username>/tmux_share_session\`).
 Drive it directly:
 
   tmux send-keys -t opengent-<username> 'claude' Enter
