@@ -40,6 +40,25 @@ STATE_ROOT="${OPENGENT_HOME:-$HOME/.opengent}"
 
 die() { echo "error: $*" >&2; exit 1; }
 
+# Compact progress indicator — hides which tools/packages get installed
+# underneath, so `curl | bash` output stays to "setting up... / links".
+SPINNER_PID=""
+spinner_start() {
+  [ -t 2 ] || return 0
+  ( while :; do for c in '|' '/' '-' '\'; do printf '\rsetting up %s' "$c" >&2; sleep 0.1; done; done ) &
+  SPINNER_PID=$!
+  disown "$SPINNER_PID" 2>/dev/null || true
+}
+spinner_stop() {
+  if [ -n "$SPINNER_PID" ]; then
+    kill "$SPINNER_PID" 2>/dev/null || true
+    wait "$SPINNER_PID" 2>/dev/null || true
+    SPINNER_PID=""
+    printf '\r\033[K' >&2
+  fi
+}
+trap spinner_stop EXIT
+
 # Turns this machine's own identity (Termux device model, hostname, or
 # whoami — whichever resolves first) into a valid slug, so a bare
 # `curl | bash` can self-provision and go live with no prompt at all.
@@ -90,6 +109,7 @@ fi
 # Sets USERNAME + the account token directly, so the shared token
 # resolution block below is skipped entirely for this path.
 AUTO_TOKENS_SET=0
+if [ "$ACTION" = start ]; then spinner_start; fi
 if [ "$ACTION" = start ] && [ -z "$USERNAME" ] && [ -z "${OPENGENT_TOKEN:-}" ]; then
   BASE="$(auto_base_username)"
   if [ -f "$STATE_ROOT/$BASE/account_token" ]; then
@@ -152,7 +172,6 @@ elif [ -f "$TOKEN_FILE" ]; then
   FRP_TOKEN="$(cut -d. -f1 "$TOKEN_FILE")"
   ACCOUNT_TOKEN="$(cut -d. -f2- "$TOKEN_FILE")"
 else
-  echo "==> creating your account on $SERVER"
   SIGNUP_RESP="$(curl -sf -X POST "https://$SERVER/api/signup" \
     -H 'Content-Type: application/json' -d "{\"username\":\"$USERNAME\"}")" \
     || die "signup failed — username may be taken (if it's yours, re-run with OPENGENT_TOKEN=<saved token>) or the server is unreachable"
@@ -192,10 +211,9 @@ fi
 
 # --- install ttyd --------------------------------------------------------
 if ! command -v ttyd >/dev/null; then
-  echo "==> installing ttyd"
-  if [ "$IS_TERMUX" = 1 ]; then pkg install -y ttyd
-  elif [ "$OS" = "Linux" ]; then sudo apt-get update -qq && sudo apt-get install -y ttyd
-  elif [ "$OS" = "Darwin" ]; then brew install ttyd
+  if [ "$IS_TERMUX" = 1 ]; then pkg install -y ttyd >/dev/null 2>&1
+  elif [ "$OS" = "Linux" ]; then sudo apt-get update -qq >/dev/null 2>&1 && sudo apt-get install -y ttyd >/dev/null 2>&1
+  elif [ "$OS" = "Darwin" ]; then brew install ttyd >/dev/null 2>&1
   fi
 fi
 command -v ttyd >/dev/null || die "ttyd install failed — install manually: $PKG_INSTALL ttyd"
@@ -203,17 +221,15 @@ command -v ttyd >/dev/null || die "ttyd install failed — install manually: $PK
 # --- install frpc ---------------------------------------------------------
 FRPC_BIN="$STATE_ROOT/bin/frpc"
 if [ ! -x "$FRPC_BIN" ]; then
-  echo "==> downloading frpc ${FRP_VERSION} ($FRP_OS/$FRP_ARCH)"
   mkdir -p "$STATE_ROOT/bin" "$STATE_ROOT/tmp"
   URL="https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_${FRP_OS}_${FRP_ARCH}.tar.gz"
   if ! curl -sL "$URL" -o "$STATE_ROOT/tmp/frp.tar.gz"; then
     [ "$FRP_OS" = android ] || die "download failed: $URL"
-    echo "==> no android build, falling back to linux/$FRP_ARCH"
     FRP_OS=linux
     curl -sL "https://github.com/fatedier/frp/releases/download/v${FRP_VERSION}/frp_${FRP_VERSION}_${FRP_OS}_${FRP_ARCH}.tar.gz" \
       -o "$STATE_ROOT/tmp/frp.tar.gz" || die "download failed"
   fi
-  tar xzf "$STATE_ROOT/tmp/frp.tar.gz" -C "$STATE_ROOT/tmp"
+  tar xzf "$STATE_ROOT/tmp/frp.tar.gz" -C "$STATE_ROOT/tmp" >/dev/null 2>&1
   cp "$STATE_ROOT/tmp/frp_${FRP_VERSION}_${FRP_OS}_${FRP_ARCH}/frpc" "$FRPC_BIN"
   chmod +x "$FRPC_BIN"
   rm -rf "$STATE_ROOT/tmp"
@@ -317,7 +333,7 @@ fi
 # session, so if we're not already inside one (the branch above), wrap
 # SHARE_CMD in a fresh tmux session here.
 if [ -n "$WRITE_SLUG" ] && [[ "$SHARE_CMD" != tmux\ attach* ]]; then
-  command -v tmux >/dev/null || { echo "==> installing tmux"; $PKG_INSTALL tmux; }
+  command -v tmux >/dev/null || $PKG_INSTALL tmux >/dev/null 2>&1
   command -v tmux >/dev/null || die "tmux is required for OPENGENT_WRITABLE=1 (to multiplex the read-only and writable links onto one session) — install it manually"
   TMUX_SHARE_SESSION="opengent-$USERNAME"
   if ! tmux has-session -t "$TMUX_SHARE_SESSION" 2>/dev/null; then
@@ -351,6 +367,7 @@ if [ -n "$WRITE_SLUG" ]; then
 fi
 
 sleep 1
+spinner_stop
 echo "public link (read-only, safe to share): https://$SERVER/$USERNAME/"
 if [ -n "$WRITE_SLUG" ]; then
   echo "private link (full control, keep secret): https://$SERVER/$WRITE_SLUG/"
