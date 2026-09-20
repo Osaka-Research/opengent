@@ -395,10 +395,17 @@ fi
 
 sleep 1
 spinner_stop
-echo "public link (read-only, safe to share): https://$SERVER/$USERNAME/"
+
+if [ -t 1 ]; then
+  C_DIM=$'\033[2m'; C_GREEN=$'\033[1;32m'; C_BOLD=$'\033[1m'; C_RESET=$'\033[0m'
+else
+  C_DIM=''; C_GREEN=''; C_BOLD=''; C_RESET=''
+fi
+
+printf '\n%s\n%s%s%s\n' "${C_DIM}public link (read-only, safe to share):${C_RESET}" "$C_GREEN" "https://$SERVER/$USERNAME/" "$C_RESET"
 if [ -n "$WRITE_SLUG" ]; then
-  echo "private link (full control, keep secret): https://$SERVER/$WRITE_SLUG/"
+  printf '\n%s\n%s%s%s\n' "${C_DIM}private link (full control, keep secret):${C_RESET}" "$C_GREEN" "https://$SERVER/$WRITE_SLUG/" "$C_RESET"
 fi
 if [ -n "${CLI_INSTALLED:-}" ] && command -v "$CLI_NAME" >/dev/null 2>&1; then
-  echo "next time, just run: $CLI_NAME"
+  printf '\n%s %s%s%s\n' "${C_DIM}next time, just run:${C_RESET}" "$C_BOLD" "$CLI_NAME" "$C_RESET"
 fi
