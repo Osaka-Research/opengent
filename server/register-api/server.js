@@ -130,6 +130,7 @@ function readBody(req, cb) {
 async function allocateOnLeastLoadedNode() {
   const { rows } = await pool.query(`
     SELECT rn.id, rn.host, rn.internal_host, rn.port_min, rn.port_max,
+           rn.frps_api_addr, rn.frps_api_user, rn.frps_api_pass,
            (rn.port_max - rn.port_min + 1) - COUNT(t.slug) AS free
     FROM relay_nodes rn
     LEFT JOIN tunnels t ON t.relay_node_id = rn.id
@@ -143,10 +144,52 @@ async function allocateOnLeastLoadedNode() {
   return rows[0];
 }
 
-async function firstFreePort(nodeId, portMin, portMax) {
-  const { rows } = await pool.query('SELECT port FROM tunnels WHERE relay_node_id = $1', [nodeId]);
+// The DB is not the source of truth for which ports are actually bound —
+// frps is. A tunnel row can go missing (client crashed before the sweep
+// ran, a row got deleted while frps's own connection to that client
+// silently outlived it — common on mobile/NAT, where the underlying TCP
+// connection dies without a clean close) while frps still holds the
+// port. Without this cross-check, the allocator hands that same port
+// back out, and the new registration fails with frps's own "start
+// error: port already used" — a real, observed failure mode, not a
+// hypothetical one. Fails open (returns null = "nothing extra known to
+// exclude") if frps's API is unreachable, same as the sweep does.
+function fetchLiveProxyPorts(node) {
+  return new Promise((resolve) => {
+    if (!node.frps_api_addr) return resolve(null);
+    const [host, portStr] = node.frps_api_addr.split(':');
+    const auth = Buffer.from(`${node.frps_api_user}:${node.frps_api_pass}`).toString('base64');
+    const req = http.get(
+      { host, port: Number(portStr), path: '/api/proxy/tcp', headers: { Authorization: `Basic ${auth}` }, timeout: 3000 },
+      (res) => {
+        let data = '';
+        res.on('data', (c) => (data += c));
+        res.on('end', () => {
+          try {
+            const parsed = JSON.parse(data);
+            const ports = new Set();
+            for (const p of parsed.proxies || []) {
+              if (p.status === 'online' && p.conf && p.conf.remotePort) ports.add(p.conf.remotePort);
+            }
+            resolve(ports);
+          } catch (e) {
+            console.error(`fetchLiveProxyPorts: bad frps API response from node ${node.id}:`, e.message);
+            resolve(null);
+          }
+        });
+      }
+    );
+    req.on('error', (e) => { console.error(`fetchLiveProxyPorts: node ${node.id} frps API unreachable:`, e.message); resolve(null); });
+    req.on('timeout', () => req.destroy());
+  });
+}
+
+async function firstFreePort(node) {
+  const { rows } = await pool.query('SELECT port FROM tunnels WHERE relay_node_id = $1', [node.id]);
   const used = new Set(rows.map((r) => r.port));
-  for (let p = portMin; p <= portMax; p++) {
+  const live = await fetchLiveProxyPorts(node);
+  if (live) for (const p of live) used.add(p);
+  for (let p = node.port_min; p <= node.port_max; p++) {
     if (!used.has(p)) return p;
   }
   return null;
@@ -155,7 +198,7 @@ async function firstFreePort(nodeId, portMin, portMax) {
 async function registerSlug(slug, ownerUserId, unlisted) {
   for (let attempt = 0; attempt < 5; attempt++) {
     const node = await allocateOnLeastLoadedNode();
-    const port = await firstFreePort(node.id, node.port_min, node.port_max);
+    const port = await firstFreePort(node);
     if (port == null) continue; // node filled up between select and here, retry
 
     const rawToken = crypto.randomBytes(16).toString('hex');

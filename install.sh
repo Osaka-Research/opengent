@@ -494,10 +494,16 @@ wait_for_ttyd() {
 }
 
 wait_for_frpc_proxy() {
+  # "proxy added:" fires the instant frpc registers the proxy locally —
+  # before frps has confirmed anything. The real outcome ("start proxy
+  # success" or "start error: ...") lands ~100-200ms later. Checking for
+  # "proxy added:" as success was a race: it matched before the actual
+  # error line even had a chance to appear, so a real remote-port
+  # collision on the relay's side got reported as a working share.
   local name="$1" tries=0
-  while [ "$tries" -lt 10 ]; do
+  while [ "$tries" -lt 20 ]; do
     grep -q "\[$name\] start error" "$STATE_DIR/frpc.log" 2>/dev/null && return 1
-    grep -q "proxy added:.*$name" "$STATE_DIR/frpc.log" 2>/dev/null && return 0
+    grep -q "\[$name\] start proxy success" "$STATE_DIR/frpc.log" 2>/dev/null && return 0
     sleep 0.1
     tries=$((tries + 1))
   done
