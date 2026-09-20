@@ -37,7 +37,7 @@ cat <<EOF
   OPENGENT_TOKEN=${FRP_TOKEN}.${TOKEN}
 
 Give them just this:
-  curl -sL https://<yourdomain>/install.sh | OPENGENT_TOKEN=${FRP_TOKEN}.${TOKEN} bash -s -- <username>
+  curl -sL <yourdomain>/i | OPENGENT_TOKEN=${FRP_TOKEN}.${TOKEN} bash -s -- <username>
 
 This token is shown once; it's stored only as a hash, so if it's lost, run
 this script again for a new one and deactivate the old row

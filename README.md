@@ -5,7 +5,7 @@ Turn any terminal — phone, laptop, CI box, agent sandbox — into a public URL
 client side.
 
 ```
-curl -sL https://yourdomain.com/install.sh | bash
+curl -sL yourdomain.com/i | bash
 ```
 
 No prompts, nothing to type: derives a username from this machine
@@ -25,21 +25,15 @@ live tmux session is safe, but there's no safe way to retroactively grab
 an arbitrary bare terminal's pty without risking the original process.
 
 ```
-your terminal is live — public, read-only:
-
-    https://yourdomain.com/yourname/
-
-writable link (anyone with this URL can type, no password — keep it
-secret, don't post it anywhere public):
-
-    https://yourdomain.com/<random-hash>/
+public link (read-only, safe to share): https://yourdomain.com/yourname/
+private link (full control, keep secret): https://yourdomain.com/<random-hash>/
 ```
 
 Prefer an admin-issued token (scripting, CI, or a higher quota than the
 self-serve default) instead of self-provisioning?
 
 ```
-curl -sL https://yourdomain.com/install.sh \
+curl -sL yourdomain.com/i \
   | OPENGENT_TOKEN=<given-by-admin> bash -s -- yourname
 ```
 

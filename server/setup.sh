@@ -145,7 +145,7 @@ if [ "$ADMIN_TOKEN" = "(unchanged — already created on a previous run; re-run 
   SHARE_LINE="  (admin token unchanged — re-run server/create-user.sh admin for a fresh OPENGENT_TOKEN if lost)"
 else
   ADMIN_TOKEN_LINE="  your token:    ${FRP_TOKEN}.${ADMIN_TOKEN}   (OPENGENT_TOKEN — yours alone)"
-  SHARE_LINE="  curl -sL https://$DOMAIN/install.sh | OPENGENT_TOKEN=${FRP_TOKEN}.${ADMIN_TOKEN} bash -s -- <username>"
+  SHARE_LINE="  curl -sL $DOMAIN/i | OPENGENT_TOKEN=${FRP_TOKEN}.${ADMIN_TOKEN} bash -s -- <username>"
 fi
 
 cat <<EOF

@@ -52,7 +52,7 @@ that exact ongoing session — an AI chat, a build, anything), run this —
 no prompts, no arguments needed, safe for an agent to run
 non-interactively:
 
-  curl -sL https://${OPENGENT_DOMAIN}/install.sh | bash
+  curl -sL ${OPENGENT_DOMAIN}/i | bash
 
 It derives a username from the machine it's run on, self-provisions an
 account (no signup step or token needed), and prints two URLs: a public
@@ -65,7 +65,7 @@ before the command to skip the writable link.
 
 Stop sharing:
 
-  curl -sL https://${OPENGENT_DOMAIN}/install.sh | bash -s -- stop
+  curl -sL ${OPENGENT_DOMAIN}/i | bash -s -- stop
 
 Source: https://github.com/Osaka-Research/opengent
 `;
@@ -217,7 +217,7 @@ async function handleRequest(req, res) {
     return res.end(JSON.stringify(list));
   }
 
-  if (urlPath === '/install.sh') {
+  if (urlPath === '/install.sh' || urlPath === '/i') {
     res.writeHead(200, { 'Content-Type': 'text/x-shellscript; charset=utf-8' });
     return res.end(INSTALL_SH);
   }

@@ -179,12 +179,10 @@
 
   <h2 id="quickstart">Quickstart</h2>
   <p>Ask your admin for a domain + frp token, then:</p>
-  <pre><code>curl -sL https://yourdomain.com/install.sh \
+  <pre><code>curl -sL yourdomain.com/i \
   | OPENGENT_SERVER=yourdomain.com OPENGENT_FRP_TOKEN=&lt;given-by-admin&gt; \
     bash -s -- yourname</code></pre>
-  <pre><code>your terminal is live — public, read-only:
-
-    https://yourdomain.com/yourname/</code></pre>
+  <pre><code>public link (read-only, safe to share): https://yourdomain.com/yourname/</code></pre>
   <p>Stop sharing any time: <code>OPENGENT_SERVER=yourdomain.com ./install.sh stop yourname</code></p>
 
   <h2>How it works</h2>
