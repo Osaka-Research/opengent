@@ -116,9 +116,19 @@
     margin-top: 0.85rem;
   }
 
+  .demo-caption {
+    text-align: center;
+    color: var(--accent);
+    font-size: 0.78rem;
+    font-weight: 600;
+    margin-top: 3.2rem;
+    margin-bottom: 0.6rem;
+    min-height: 1.2em;
+    transition: opacity 0.2s;
+  }
+
   /* --- terminal demo (kept dark — reads as a real terminal) --- */
   .demo {
-    margin-top: 3.2rem;
     background: #0b1220;
     border: 1px solid #1c2536;
     border-radius: 12px;
@@ -152,6 +162,8 @@
   .demo-body .out { color: #eef3fb; }
   .demo-body .ok { color: #5b9bff; font-weight: 600; }
   .demo-body .dim { color: #7688a8; }
+  .demo-body .user { color: #eef3fb; }
+  .demo-body .agent { color: #5be0a3; }
   #demo-cursor {
     display: inline-block;
     width: 7px; height: 1em;
@@ -277,6 +289,7 @@
   </div>
   <div class="cmd-hint">no signup · no token · live in ~2 seconds</div>
 
+  <div class="demo-caption" id="demo-caption">&nbsp;</div>
   <div class="demo">
     <div class="demo-bar"><span></span><span></span><span></span></div>
     <div class="demo-body" id="demo"></div>
@@ -351,52 +364,103 @@
     document.body.removeChild(ta);
   }
 
-  // Small typing-demo loop in the terminal window — purely illustrative,
-  // doesn't touch the real API.
+  // Cycles through a few real usage patterns in the terminal window —
+  // purely illustrative (doesn't touch the real API), meant to give
+  // people ideas beyond "run the install command" — especially around
+  // driving a shared session with (or as) an AI agent.
   (function () {
     const el = document.getElementById('demo');
-    const cmd = 'curl -sL tunl.ac/i | bash';
-    const lines = [
-      'public link (read-only, safe to share):',
-      'https://tunl.ac/yourname/',
-      '',
-      'private link (full control, keep secret):',
-      'https://tunl.ac/9f2a1c7e4b8d/',
+    const caption = document.getElementById('demo-caption');
+
+    const SCENES = [
+      {
+        caption: 'Start sharing in one line',
+        cmd: 'curl -sL tunl.ac/i | bash',
+        lines: [
+          { t: 'public link (read-only, safe to share):', c: 'dim' },
+          { t: 'https://tunl.ac/yourname/', c: 'ok' },
+          { t: '', c: 'dim' },
+          { t: 'private link (full control, keep secret):', c: 'dim' },
+          { t: 'https://tunl.ac/9f2a1c7e4b8d/', c: 'ok' },
+        ],
+      },
+      {
+        caption: 'Run an agent in it, chat with it live',
+        cmd: 'claude',
+        lines: [
+          { t: '> refactor the auth middleware to use the new token format', c: 'user' },
+          { t: '● Done. Updated 3 files, tests passing.', c: 'agent' },
+        ],
+      },
+      {
+        caption: 'Drive someone’s share from anywhere — just a link',
+        cmd: 'tunl type https://tunl.ac/9f2a1c7e4b8d/ "how’s the deploy going"',
+        lines: [
+          { t: '● Deploy finished 2 min ago. All green.', c: 'agent' },
+        ],
+      },
+      {
+        caption: 'Script it — hand an agent the keys to a share',
+        cmd: "tmux send-keys -t opengent-yourname 'npm test' Enter",
+        lines: [
+          { t: '✓ 148 tests passed', c: 'ok' },
+        ],
+      },
+      {
+        caption: 'Any agent can call any other agent — just a link',
+        cmd: 'tunl type https://tunl.ac/claude-box/ "review this PR for security issues"',
+        lines: [
+          { t: '● (Claude) Found 1 issue — unescaped input in the login handler, patched.', c: 'agent' },
+        ],
+      },
+      {
+        caption: 'No shared platform needed — GPT, Claude, DeepSeek, whatever',
+        cmd: 'tunl type https://tunl.ac/deepseek-box/ "optimize this SQL query"',
+        lines: [
+          { t: '● (DeepSeek) Rewrote it with a covering index — 40x faster.', c: 'agent' },
+        ],
+      },
     ];
 
     async function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
     function setHTML(html) { el.innerHTML = html; }
 
-    async function typeCmd() {
+    async function typeCmd(cmd) {
       let shown = '';
       for (const ch of cmd) {
         shown += ch;
         setHTML(`<span class="p">$</span> <span class="out">${shown}</span><span id="demo-cursor"></span>`);
-        await sleep(18 + Math.random() * 22);
+        await sleep(14 + Math.random() * 20);
       }
       await sleep(350);
     }
 
-    async function showOutput() {
-      let html = `<span class="p">$</span> <span class="out">${cmd}</span>\n`;
+    async function showOutput(scene) {
+      let html = `<span class="p">$</span> <span class="out">${scene.cmd}</span>\n`;
       setHTML(html);
       await sleep(200);
-      for (const line of lines) {
-        const cls = line.startsWith('http') ? 'ok' : 'dim';
-        html += `<span class="${cls}">${line || '&nbsp;'}</span>\n`;
+      for (const line of scene.lines) {
+        html += `<span class="${line.c}">${line.t || '&nbsp;'}</span>\n`;
         setHTML(html);
-        await sleep(180);
+        await sleep(220);
       }
       html += `<span class="p">$</span> <span id="demo-cursor"></span>`;
       setHTML(html);
     }
 
     async function loop() {
+      let i = 0;
       while (true) {
-        await typeCmd();
-        await showOutput();
-        await sleep(3200);
+        const scene = SCENES[i % SCENES.length];
+        caption.style.opacity = 0;
+        await sleep(150);
+        caption.textContent = scene.caption;
+        caption.style.opacity = 1;
+        await typeCmd(scene.cmd);
+        await showOutput(scene);
+        await sleep(3000);
+        i++;
       }
     }
     loop();
