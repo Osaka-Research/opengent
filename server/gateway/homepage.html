@@ -172,6 +172,118 @@
     animation: blink 1s steps(1) infinite;
   }
 
+  /* --- scan-to-phone --- */
+  .scan-section { margin-top: 3.8rem; }
+  .scan-label {
+    text-align: center;
+    color: var(--text-dimmer);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    margin-bottom: 1.2rem;
+  }
+  .scan-mock {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1.4rem;
+    flex-wrap: wrap;
+  }
+  .scan-terminal {
+    background: #0b1220;
+    border: 1px solid #1c2536;
+    border-radius: 12px;
+    overflow: hidden;
+    width: 240px;
+    box-shadow: 0 20px 50px -20px rgba(15,38,84,0.35);
+    flex-shrink: 0;
+  }
+  .scan-terminal .demo-bar { padding: 0.6rem 0.8rem; }
+  .scan-terminal-body {
+    padding: 0.9rem 1rem 1.1rem;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    line-height: 1.6;
+  }
+  .scan-terminal-body .dim { color: #7688a8; }
+  .scan-terminal-body .ok { color: #5b9bff; font-weight: 600; }
+  .scan-qr {
+    display: block;
+    margin: 0.6rem auto 0.2rem;
+    border-radius: 4px;
+    background: #fff;
+    padding: 6px;
+  }
+  .scan-arrow {
+    flex-shrink: 0;
+    color: var(--border-hover);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .scan-arrow .cam { font-size: 1.3rem; }
+  .scan-arrow svg { display: block; }
+  @media (max-width: 620px) {
+    .scan-mock { flex-direction: column; }
+    .scan-arrow svg { transform: rotate(90deg); width: 40px; }
+  }
+  .phone {
+    flex-shrink: 0;
+    width: 132px;
+    height: 264px;
+    background: #0b1526;
+    border-radius: 22px;
+    padding: 8px;
+    box-shadow: 0 20px 50px -20px rgba(15,38,84,0.35);
+  }
+  .phone-notch {
+    width: 44px;
+    height: 5px;
+    border-radius: 3px;
+    background: #263248;
+    margin: 0 auto 6px;
+  }
+  .phone-screen {
+    background: #fff;
+    border-radius: 14px;
+    height: calc(100% - 11px);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .phone-addr {
+    background: var(--bg-soft);
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 0.55rem;
+    color: var(--text-dim);
+    padding: 0.4rem 0.5rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .phone-term {
+    flex: 1;
+    background: #0b1220;
+    font-family: var(--mono);
+    font-size: 0.56rem;
+    line-height: 1.6;
+    color: #d7e0f0;
+    padding: 0.5rem 0.55rem;
+  }
+  .phone-term .p { color: #4a5b78; }
+  .phone-term .ok { color: #5b9bff; }
+  .scan-caption {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.82rem;
+    max-width: 38ch;
+    margin: 1.3rem auto 0;
+    line-height: 1.5;
+  }
+
   /* --- works-with --- */
   .works {
     margin-top: 3.5rem;
@@ -293,6 +405,40 @@
   <div class="demo">
     <div class="demo-bar"><span></span><span></span><span></span></div>
     <div class="demo-body" id="demo"></div>
+  </div>
+
+  <div class="scan-section">
+    <div class="scan-label">Or just scan it</div>
+    <div class="scan-mock">
+      <div class="scan-terminal">
+        <div class="demo-bar"><span></span><span></span><span></span></div>
+        <div class="scan-terminal-body">
+          <div class="dim">public link (read-only, safe to share):</div>
+          <div class="ok">https://tunl.ac/yourname/</div>
+          <canvas class="scan-qr" id="scan-qr" width="105" height="105"></canvas>
+        </div>
+      </div>
+      <div class="scan-arrow">
+        <span class="cam">📷</span>
+        <svg width="40" height="16" viewBox="0 0 40 16" fill="none">
+          <path d="M0 8h32M32 8l-6-6M32 8l-6 6" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3"/>
+        </svg>
+      </div>
+      <div class="phone">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+          <div class="phone-addr">tunl.ac/yourname</div>
+          <div class="phone-term">
+            <div><span class="p">$</span> tmux attach-session</div>
+            <div class="ok">~/projects/site $</div>
+            <div>▍</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="scan-caption">Every link install.sh prints comes with a QR code —
+      scan it from your terminal and the exact same live session opens on
+      your phone. No app, no pairing.</p>
   </div>
 
   <div class="works">
@@ -464,6 +610,47 @@
       }
     }
     loop();
+  })();
+
+  // Decorative QR pattern for the scan-to-phone mockup — a real finder
+  // pattern in each corner (what makes something visually read as "a QR
+  // code") plus a fixed pseudo-random fill. Illustrative only, not a
+  // scannable code; the real ones come from `qrencode` in install.sh.
+  (function () {
+    const canvas = document.getElementById('scan-qr');
+    if (!canvas || !canvas.getContext) return;
+    const ctx = canvas.getContext('2d');
+    const modules = 21;
+    const size = canvas.width / modules;
+
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#0b1220';
+
+    function cell(x, y) { ctx.fillRect(x * size, y * size, Math.ceil(size), Math.ceil(size)); }
+
+    function finder(fx, fy) {
+      for (let x = 0; x < 7; x++) for (let y = 0; y < 7; y++) {
+        const border = x === 0 || x === 6 || y === 0 || y === 6;
+        const core = x >= 2 && x <= 4 && y >= 2 && y <= 4;
+        if (border || core) cell(fx + x, fy + y);
+      }
+    }
+
+    // Simple seeded PRNG so the "random" fill is stable across loads.
+    let seed = 42;
+    function rand() { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; }
+
+    for (let x = 0; x < modules; x++) {
+      for (let y = 0; y < modules; y++) {
+        const inFinder = (x < 8 && y < 8) || (x > modules - 9 && y < 8) || (x < 8 && y > modules - 9);
+        if (inFinder) continue;
+        if (rand() > 0.56) cell(x, y);
+      }
+    }
+    finder(0, 0);
+    finder(modules - 7, 0);
+    finder(0, modules - 7);
   })();
 </script>
 
