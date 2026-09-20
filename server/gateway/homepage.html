@@ -6,55 +6,84 @@
 <title>tunl.ac — live terminals</title>
 <style>
   :root {
-    --bg: #0b0e11;
+    --bg: #0a0d10;
     --bg-raised: #12161b;
+    --bg-card: #10141a;
     --border: #1f252b;
-    --text: #e6e8eb;
+    --border-hover: #2a333c;
+    --text: #eef1f4;
     --text-dim: #8b95a1;
+    --text-dimmer: #5c6672;
     --accent: #34d399;
+    --accent-dim: #1f7a5c;
   }
   * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
   body {
     margin: 0;
-    background: var(--bg);
+    background:
+      radial-gradient(ellipse 900px 500px at 50% -10%, rgba(52,211,153,0.10), transparent),
+      var(--bg);
     color: var(--text);
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Roboto Mono", monospace;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 2rem clamp(16px, 4vw, 2.5rem);
   }
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: clamp(3rem, 8vh, 6rem) clamp(20px, 5vw, 2.5rem) 4rem;
+  }
+
+  /* --- brand --- */
   .brand {
     display: flex;
-    align-items: baseline;
-    gap: 0.6rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
     font-weight: 700;
-    font-size: 1.3rem;
-    letter-spacing: -0.02em;
-    margin-bottom: 0.5rem;
+    font-size: 1.05rem;
+    letter-spacing: -0.01em;
+    margin-bottom: 1.6rem;
   }
-  .brand .prompt { color: var(--accent); }
-  .tagline {
-    color: var(--text-dim);
-    font-size: 0.85rem;
-    margin-bottom: 2rem;
+  .brand .prompt {
+    color: var(--accent);
+    animation: blink 1.1s steps(1) infinite;
+  }
+  @keyframes blink { 50% { opacity: 0.25; } }
+
+  /* --- hero --- */
+  h1 {
     text-align: center;
+    font-size: clamp(1.7rem, 4.5vw, 2.5rem);
+    line-height: 1.25;
+    letter-spacing: -0.02em;
+    margin: 0 0 0.9rem;
+    font-weight: 700;
   }
+  h1 .hl { color: var(--accent); }
+  .sub {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 0.95rem;
+    line-height: 1.6;
+    max-width: 46ch;
+    margin: 0 auto 2.4rem;
+  }
+
+  /* --- command --- */
   .cmd-row {
     display: flex;
-    align-items: center;
+    align-items: stretch;
     gap: 0.5rem;
-    max-width: 92vw;
+    max-width: 100%;
   }
   .cmd-row code {
+    flex: 1;
     background: var(--bg-raised);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.7rem 1rem;
+    border-radius: 10px;
+    padding: 0.85rem 1.1rem;
     color: var(--accent);
-    font-size: 0.85rem;
+    font-size: 0.88rem;
     user-select: all;
     overflow-x: auto;
     white-space: nowrap;
@@ -62,32 +91,217 @@
   .copy-btn {
     background: var(--bg-raised);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 10px;
     color: var(--text-dim);
     font: inherit;
-    font-size: 0.78rem;
-    padding: 0.7rem 0.9rem;
+    font-size: 0.8rem;
+    padding: 0.85rem 1.05rem;
     cursor: pointer;
     flex-shrink: 0;
+    transition: color 0.15s, border-color 0.15s;
   }
   .copy-btn:hover { color: var(--text); border-color: var(--accent); }
   .copy-btn.copied { color: var(--accent); border-color: var(--accent); }
+  .cmd-hint {
+    text-align: center;
+    color: var(--text-dimmer);
+    font-size: 0.72rem;
+    margin-top: 0.7rem;
+  }
+
+  /* --- terminal demo --- */
+  .demo {
+    margin-top: 3rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px -20px rgba(0,0,0,0.6);
+  }
+  .demo-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.7rem 0.9rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-raised);
+  }
+  .demo-bar span {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--border-hover);
+  }
+  .demo-body {
+    padding: 1.1rem 1.2rem 1.3rem;
+    font-size: 0.82rem;
+    line-height: 1.7;
+    min-height: 128px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .demo-body .p { color: var(--text-dimmer); }
+  .demo-body .out { color: var(--text); }
+  .demo-body .ok { color: var(--accent); }
+  .demo-body .dim { color: var(--text-dim); }
+  #demo-cursor {
+    display: inline-block;
+    width: 7px; height: 1em;
+    background: var(--accent);
+    vertical-align: text-bottom;
+    animation: blink 1s steps(1) infinite;
+  }
+
+  /* --- works-with --- */
+  .works {
+    margin-top: 3.5rem;
+    text-align: center;
+  }
+  .works-label {
+    color: var(--text-dimmer);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin-bottom: 1.1rem;
+  }
+  .badges {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.55rem;
+  }
+  .badge {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.4rem 0.8rem 0.4rem 0.5rem;
+    font-size: 0.78rem;
+    color: var(--text-dim);
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .badge:hover { border-color: var(--border-hover); color: var(--text); }
+  .badge .mark {
+    width: 20px; height: 20px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.68rem;
+    font-weight: 700;
+    flex-shrink: 0;
+    color: #0a0d10;
+  }
+  .badge.plus {
+    color: var(--text-dimmer);
+    border-style: dashed;
+  }
+
+  /* --- features --- */
+  .features {
+    margin-top: 3.5rem;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.7rem;
+  }
+  @media (max-width: 520px) { .features { grid-template-columns: 1fr; } }
+  .feature {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+  }
+  .feature .ico { color: var(--accent); font-size: 0.9rem; margin-bottom: 0.4rem; }
+  .feature h3 {
+    margin: 0 0 0.3rem;
+    font-size: 0.86rem;
+    color: var(--text);
+    font-weight: 600;
+  }
+  .feature p {
+    margin: 0;
+    font-size: 0.76rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+  }
+
+  footer {
+    margin-top: 3.5rem;
+    text-align: center;
+    color: var(--text-dimmer);
+    font-size: 0.72rem;
+  }
 </style>
 </head>
 <body>
+<main>
 
-<div class="brand"><span class="prompt">&gt;_</span> tunl.ac</div>
-<div class="tagline">share (or stream an ongoing AI session in) your own terminal</div>
+  <div class="brand"><span class="prompt">&gt;_</span> tunl.ac</div>
 
-<!--
-  Machine-readable, always in the raw HTML: an agent that fetches this
-  page can lift the command below and run it — that's the whole point
-  of self-serve signup. Full instructions also at https://tunl.ac/llms.txt.
--->
-<div class="cmd-row">
-  <code id="cmd">curl -sL tunl.ac/i | bash</code>
-  <button class="copy-btn" onclick="copyCmd(this,'cmd')">copy</button>
-</div>
+  <h1>Your terminal,<br><span class="hl">anywhere there's a link.</span></h1>
+  <p class="sub">Turn any shell into a public URL. Watch it live, type into it
+    from across the world, or hand your AI agent a real terminal it can
+    actually drive — no public IP, no port-forwarding, no install beyond
+    one line.</p>
+
+  <!--
+    Machine-readable, always in the raw HTML: an agent that fetches this
+    page can lift the command below and run it — that's the whole point
+    of self-serve signup. Full instructions also at https://tunl.ac/llms.txt.
+  -->
+  <div class="cmd-row">
+    <code id="cmd">curl -sL tunl.ac/i | bash</code>
+    <button class="copy-btn" onclick="copyCmd(this,'cmd')">copy</button>
+  </div>
+  <div class="cmd-hint">no signup · no token · live in ~2 seconds</div>
+
+  <div class="demo">
+    <div class="demo-bar"><span></span><span></span><span></span></div>
+    <div class="demo-body" id="demo"></div>
+  </div>
+
+  <div class="works">
+    <div class="works-label">Just a terminal — works with whatever's driving it</div>
+    <div class="badges">
+      <span class="badge"><span class="mark" style="background:#d97757">C</span>Claude</span>
+      <span class="badge"><span class="mark" style="background:#e8e8e8">G</span>GPT</span>
+      <span class="badge"><span class="mark" style="background:#8ab4f8">G</span>Gemini</span>
+      <span class="badge"><span class="mark" style="background:#eeeeee">X</span>Grok</span>
+      <span class="badge"><span class="mark" style="background:#7c9eff">∞</span>Llama</span>
+      <span class="badge"><span class="mark" style="background:#ff8c42">M</span>Mistral</span>
+      <span class="badge"><span class="mark" style="background:#5b8def">D</span>DeepSeek</span>
+      <span class="badge"><span class="mark" style="background:#a78bfa">Q</span>Qwen</span>
+      <span class="badge plus">+ any local model</span>
+    </div>
+  </div>
+
+  <div class="features">
+    <div class="feature">
+      <div class="ico">▲</div>
+      <h3>No public IP needed</h3>
+      <p>Works behind NAT or CGNAT — a phone, a home network, a sandboxed CI runner.</p>
+    </div>
+    <div class="feature">
+      <div class="ico">◆</div>
+      <h3>Per-session isolation</h3>
+      <p>Own process, own port, own credentials for every share. No shared state.</p>
+    </div>
+    <div class="feature">
+      <div class="ico">●</div>
+      <h3>Self-hosted, open source</h3>
+      <p>Your server, your domain, your TLS certs. Nothing to subscribe to.</p>
+    </div>
+    <div class="feature">
+      <div class="ico">■</div>
+      <h3>Built for agents</h3>
+      <p>An MCP server plus type/read subcommands so an agent can drive any link directly.</p>
+    </div>
+  </div>
+
+  <footer>self-hosted, open source terminal relay</footer>
+
+</main>
 
 <script>
   function copyCmd(btn, id) {
@@ -115,6 +329,57 @@
     try { document.execCommand('copy'); done(); } catch (e) { /* clipboard unavailable */ }
     document.body.removeChild(ta);
   }
+
+  // Small typing-demo loop in the terminal window — purely illustrative,
+  // doesn't touch the real API.
+  (function () {
+    const el = document.getElementById('demo');
+    const cmd = 'curl -sL tunl.ac/i | bash';
+    const lines = [
+      'public link (read-only, safe to share):',
+      'https://tunl.ac/yourname/',
+      '',
+      'private link (full control, keep secret):',
+      'https://tunl.ac/9f2a1c7e4b8d/',
+    ];
+
+    async function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+    function setHTML(html) { el.innerHTML = html; }
+
+    async function typeCmd() {
+      let shown = '';
+      for (const ch of cmd) {
+        shown += ch;
+        setHTML(`<span class="p">$</span> <span class="out">${shown}</span><span id="demo-cursor"></span>`);
+        await sleep(18 + Math.random() * 22);
+      }
+      await sleep(350);
+    }
+
+    async function showOutput() {
+      let html = `<span class="p">$</span> <span class="out">${cmd}</span>\n`;
+      setHTML(html);
+      await sleep(200);
+      for (const line of lines) {
+        const cls = line.startsWith('http') ? 'ok' : 'dim';
+        html += `<span class="${cls}">${line || '&nbsp;'}</span>\n`;
+        setHTML(html);
+        await sleep(180);
+      }
+      html += `<span class="p">$</span> <span id="demo-cursor"></span>`;
+      setHTML(html);
+    }
+
+    async function loop() {
+      while (true) {
+        await typeCmd();
+        await showOutput();
+        await sleep(3200);
+      }
+    }
+    loop();
+  })();
 </script>
 
 </body>
