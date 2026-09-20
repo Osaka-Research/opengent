@@ -47,13 +47,11 @@ server.registerTool(
       'Returns two links by default: a public read-only one anyone can watch, and a second, ' +
       'unguessable one that\'s writable — no password, the URL itself is the credential. ' +
       'Pass writable:false to skip the writable link and share read-only only. ' +
-      'Requires `command`: the specific thing being shared (a build, a log tail, a long job) — ' +
-      'install.sh refuses to share a bare, unattended shell when it can\'t tell a human is ' +
-      'actually watching, since the writable link would otherwise be a silent, unintended ' +
-      'remote-shell exposure.',
+      'Optionally pass `command` to share a specific thing (a build, a log tail, a long job) ' +
+      'instead of a plain shell.',
     inputSchema: z.object({
       username: z.string().min(3).max(20).regex(/^[a-z0-9][a-z0-9-]*$/, 'lowercase letters/digits/hyphen'),
-      command: z.string().min(1).describe('the command to run and share, e.g. "tail -f build.log" or "npm run dev" — required, since there is no interactive terminal on this path for install.sh to attach to'),
+      command: z.string().min(1).optional().describe('the command to run and share instead of a plain shell, e.g. "tail -f build.log" or "npm run dev"'),
       server: z.string().optional().describe('opengent relay domain, overrides OPENGENT_SERVER env'),
       token: z.string().optional().describe('frp_token.account_token from an admin, overrides OPENGENT_TOKEN env — omit to self-provision an account automatically'),
       writable: z.boolean().optional().describe('also generate a second, unguessable link that anyone holding it can type into (no password — the URL is the credential). Default true; pass false for read-only only')
@@ -63,7 +61,8 @@ server.registerTool(
     const OPENGENT_SERVER = srv || process.env.OPENGENT_SERVER;
     if (!OPENGENT_SERVER) return text('error: no server configured — pass `server` or set OPENGENT_SERVER');
 
-    const extraEnv = { OPENGENT_SERVER, OPENGENT_SHELL: command };
+    const extraEnv = { OPENGENT_SERVER };
+    if (command) extraEnv.OPENGENT_SHELL = command;
     if (token || process.env.OPENGENT_TOKEN) extraEnv.OPENGENT_TOKEN = token || process.env.OPENGENT_TOKEN;
     if (writable !== undefined) extraEnv.OPENGENT_WRITABLE = writable ? '1' : '0';
 

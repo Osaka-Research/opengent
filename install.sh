@@ -84,25 +84,6 @@ fi
 
 SERVER="${OPENGENT_SERVER:?set OPENGENT_SERVER=yourdomain.com (only needed for a local clone — fetching this script via curl from your server fills it in automatically)}"
 
-# Refuse to silently create a share nobody can ever put anything into.
-# Sharing an existing tmux pane (TMUX set) is always fine — nothing new
-# is spawned. Sharing an explicit OPENGENT_SHELL is always fine too —
-# that's a deliberate choice of what to run (a build, a log tail, a CI
-# job), not "watch an empty prompt". What's NOT fine: no tmux, no
-# OPENGENT_SHELL, and stdout isn't a real terminal — that combination
-# means install.sh is being invoked programmatically (an agent's shell
-# tool, a script) rather than typed by a human at a terminal, so the
-# plain-$SHELL process it would spawn is one nobody — not a viewer, not
-# whatever invoked this — can ever type into. That's exactly what
-# happens when an AI agent runs this curl|bash via its own non-interactive
-# command execution instead of from the terminal session it's actually
-# running in: you get a permanently empty shell, silently.
-if [ "$ACTION" = start ] && [ -z "${TMUX:-}" ] && [ -z "${OPENGENT_SHELL:-}" ] && ! [ -t 1 ]; then
-  die "no interactive terminal detected — this would create an empty, unwatched shell that nothing can ever type into.
-  Run this from inside the terminal you're actually using — a tmux pane if you want to share a live session
-  (an AI agent should run this from the terminal it's running IN, not via its own command-execution tool).
-  To share a specific command instead (a build, a log, a long-running job), set OPENGENT_SHELL=\"<command>\"."
-fi
 
 # Auto mode: no username, no admin token — derive one from this machine
 # and self-provision, retrying with a short random suffix on conflict.
@@ -140,10 +121,10 @@ STATE_DIR="$STATE_ROOT/$USERNAME"
 
 if [ "$ACTION" = stop ]; then
   echo "==> stopping $USERNAME"
-  [ -f "$STATE_DIR/ttyd.pid" ] && kill "$(cat "$STATE_DIR/ttyd.pid")" 2>/dev/null
-  [ -f "$STATE_DIR/write-ttyd.pid" ] && kill "$(cat "$STATE_DIR/write-ttyd.pid")" 2>/dev/null
-  [ -f "$STATE_DIR/frpc.pid" ] && kill "$(cat "$STATE_DIR/frpc.pid")" 2>/dev/null
-  [ -f "$STATE_DIR/tmux_share_session" ] && tmux kill-session -t "$(cat "$STATE_DIR/tmux_share_session")" 2>/dev/null
+  [ -f "$STATE_DIR/ttyd.pid" ] && { kill "$(cat "$STATE_DIR/ttyd.pid")" 2>/dev/null || true; }
+  [ -f "$STATE_DIR/write-ttyd.pid" ] && { kill "$(cat "$STATE_DIR/write-ttyd.pid")" 2>/dev/null || true; }
+  [ -f "$STATE_DIR/frpc.pid" ] && { kill "$(cat "$STATE_DIR/frpc.pid")" 2>/dev/null || true; }
+  [ -f "$STATE_DIR/tmux_share_session" ] && { tmux kill-session -t "$(cat "$STATE_DIR/tmux_share_session")" 2>/dev/null || true; }
   if [ -f "$STATE_DIR/meta.json" ]; then
     TOKEN=$(grep -o '"revokeToken":"[^"]*"' "$STATE_DIR/meta.json" | cut -d'"' -f4)
     curl -sf -X DELETE "https://$SERVER/api/register/$USERNAME" \

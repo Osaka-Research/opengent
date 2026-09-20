@@ -47,34 +47,24 @@ const LLMS_TXT = `# ${OPENGENT_DOMAIN}
 > Turn a terminal into a public, watchable URL. Point a browser at
 > https://${OPENGENT_DOMAIN}/ to see who's live right now.
 
-If you're an AI agent running this non-interactively — no tmux pane, no
-real terminal attached, e.g. via your own shell/exec tool — that's the
-common case, and it needs one extra thing: set OPENGENT_SHELL to
-whatever you want shared (a build, a log tail, a long job — or just an
-interactive shell someone can drive from the writable link below):
-
-  curl -sL ${OPENGENT_DOMAIN}/i | OPENGENT_SHELL="bash -i" bash -s -- <username>
-
-Without OPENGENT_SHELL (and without running inside an existing tmux
-pane), install.sh deliberately refuses to start — it won't silently
-open an unattended, publicly-writable shell that nobody actually asked
-for. Set OPENGENT_SHELL to the real command you're running (e.g.
-"npm run dev", "tail -f build.log") whenever there's something
-specific to share instead of a bare shell.
-
-Already inside a tmux pane and want to stream that exact ongoing
-session (an AI chat, a build, anything already running there)? Just:
+To share this terminal (or, run from inside an existing tmux pane, stream
+that exact ongoing session — an AI chat, a build, anything), run this —
+no prompts, no arguments needed, safe for an agent to run
+non-interactively:
 
   curl -sL ${OPENGENT_DOMAIN}/i | bash
 
-Either way it self-provisions an account (no signup step or token
-needed) and prints two URLs: a public read-only one —
-https://${OPENGENT_DOMAIN}/<username>/, anyone can watch, nobody can
-type — and a second, unguessable writable one
+It derives a username from the machine it's run on, self-provisions an
+account (no signup step or token needed), and prints two URLs: a public
+read-only one — https://${OPENGENT_DOMAIN}/<username>/, anyone can watch,
+nobody can type — and a second, unguessable writable one
 (https://${OPENGENT_DOMAIN}/<random-hash>/) that anyone holding it can
 type into, no password. Pass a username explicitly instead
 (bash -s -- <username>) to choose your own, or set OPENGENT_WRITABLE=0
 before the command to skip the writable link.
+
+Optionally set OPENGENT_SHELL="<command>" to share a specific command
+(a build, a log tail, a long job) instead of a plain shell.
 
 Stop sharing:
 
