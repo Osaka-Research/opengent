@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>shellai.tv — live terminals</title>
+<title>tunl.ac — live terminals</title>
 <style>
   :root {
     --bg: #0b0e11;
@@ -160,6 +160,20 @@
     font-size: 0.78rem;
     user-select: all;
   }
+  .cmd-row { display: flex; align-items: center; gap: 0.5rem; }
+  .cmd-row pre { margin: 0; }
+  .copy-btn {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 0.72rem;
+    padding: 0.25rem 0.6rem;
+    cursor: pointer;
+  }
+  .copy-btn:hover { color: var(--text); border-color: var(--accent); }
+  .copy-btn.copied { color: var(--accent); border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -177,7 +191,8 @@
 -->
 <div class="go-live">
   <span>share (or stream an ongoing AI session in) your own terminal:</span>
-  <code>curl -sL tunl.ac/i | bash</code>
+  <code id="cmd-top">curl -sL tunl.ac/i | bash</code>
+  <button class="copy-btn" onclick="copyCmd(this,'cmd-top')">copy</button>
 </div>
 
 <main>
@@ -185,7 +200,10 @@
   <div id="empty" class="empty" hidden>
     <h2>no one's live right now</h2>
     <div>be the first — share your terminal:</div>
-    <pre>curl -sL tunl.ac/i | bash</pre>
+    <div class="cmd-row">
+      <pre id="cmd-empty">curl -sL tunl.ac/i | bash</pre>
+      <button class="copy-btn" onclick="copyCmd(this,'cmd-empty')">copy</button>
+    </div>
   </div>
 </main>
 
@@ -194,6 +212,32 @@
 </footer>
 
 <script>
+  function copyCmd(btn, id) {
+    const text = document.getElementById(id).textContent;
+    const done = () => {
+      const prev = btn.textContent;
+      btn.textContent = 'copied';
+      btn.classList.add('copied');
+      setTimeout(() => { btn.textContent = prev; btn.classList.remove('copied'); }, 1200);
+    };
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+    } else {
+      fallbackCopy(text, done);
+    }
+  }
+
+  function fallbackCopy(text, done) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) { /* clipboard unavailable */ }
+    document.body.removeChild(ta);
+  }
+
   const list = document.getElementById('list');
   const empty = document.getElementById('empty');
   const countText = document.getElementById('count-text');

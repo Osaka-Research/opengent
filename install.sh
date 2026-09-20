@@ -366,9 +366,39 @@ if [ -n "$WRITE_SLUG" ]; then
   disown 2>/dev/null || true
 fi
 
+# --- install a short local command, e.g. `tunl` for tunl.ac ----------------
+# So next time is just `tunl` / `tunl stop`, not the full curl one-liner.
+# The installed command just re-runs this same curl|bash — always fetches
+# whatever's currently live on $SERVER, never goes stale on its own.
+CLI_NAME="$(printf '%s' "$SERVER" | cut -d. -f1)"
+if [[ "$CLI_NAME" =~ ^[a-z][a-z0-9_-]{1,30}$ ]]; then
+  CLI_TMP="$(mktemp)"
+  cat > "$CLI_TMP" <<CLIEOF
+#!/usr/bin/env bash
+exec curl -sL $SERVER/i | bash -s -- "\$@"
+CLIEOF
+  chmod +x "$CLI_TMP"
+  CLI_INSTALLED=""
+  if [ "$IS_TERMUX" = 1 ] && [ -w "$PREFIX/bin" ]; then
+    cp "$CLI_TMP" "$PREFIX/bin/$CLI_NAME" 2>/dev/null && CLI_INSTALLED="$PREFIX/bin/$CLI_NAME"
+  elif [ -w /usr/local/bin ] 2>/dev/null; then
+    cp "$CLI_TMP" "/usr/local/bin/$CLI_NAME" 2>/dev/null && CLI_INSTALLED="/usr/local/bin/$CLI_NAME"
+  elif command -v sudo >/dev/null; then
+    sudo -n install -m 755 "$CLI_TMP" "/usr/local/bin/$CLI_NAME" 2>/dev/null && CLI_INSTALLED="/usr/local/bin/$CLI_NAME"
+  fi
+  if [ -z "$CLI_INSTALLED" ]; then
+    mkdir -p "$HOME/.local/bin" 2>/dev/null
+    cp "$CLI_TMP" "$HOME/.local/bin/$CLI_NAME" 2>/dev/null && CLI_INSTALLED="$HOME/.local/bin/$CLI_NAME"
+  fi
+  rm -f "$CLI_TMP"
+fi
+
 sleep 1
 spinner_stop
 echo "public link (read-only, safe to share): https://$SERVER/$USERNAME/"
 if [ -n "$WRITE_SLUG" ]; then
   echo "private link (full control, keep secret): https://$SERVER/$WRITE_SLUG/"
+fi
+if [ -n "${CLI_INSTALLED:-}" ] && command -v "$CLI_NAME" >/dev/null 2>&1; then
+  echo "next time, just run: $CLI_NAME"
 fi
