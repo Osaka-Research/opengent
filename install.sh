@@ -387,6 +387,65 @@ if [ -n "$WRITE_SLUG" ]; then
   disown 2>/dev/null || true
 fi
 
+# --- verify the share actually came up -------------------------------------
+# Printing success links regardless of whether ttyd/frpc actually bound
+# was worse than erroring: a dead link gives no signal anything's wrong
+# until someone tries it. Check locally (ttyd answering on its port) and
+# check frpc's own log for its authoritative per-proxy success/failure
+# line, and fail loudly — with cleanup — instead of pretending it worked.
+# State dir (and its logs) deliberately left in place on failure, for
+# debugging — only the "stop" action removes it.
+wait_for_ttyd() {
+  local port="$1" base_path="$2" tries=0
+  while [ "$tries" -lt 25 ]; do
+    [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/$base_path/" 2>/dev/null)" = "200" ] && return 0
+    sleep 0.2
+    tries=$((tries + 1))
+  done
+  return 1
+}
+
+wait_for_frpc_proxy() {
+  local name="$1" tries=0
+  while [ "$tries" -lt 25 ]; do
+    grep -q "\[$name\] start error" "$STATE_DIR/frpc.log" 2>/dev/null && return 1
+    grep -q "proxy added:.*$name" "$STATE_DIR/frpc.log" 2>/dev/null && return 0
+    sleep 0.2
+    tries=$((tries + 1))
+  done
+  return 1
+}
+
+cleanup_failed_start() {
+  [ -f "$STATE_DIR/ttyd.pid" ] && { kill "$(cat "$STATE_DIR/ttyd.pid")" 2>/dev/null || true; }
+  [ -f "$STATE_DIR/write-ttyd.pid" ] && { kill "$(cat "$STATE_DIR/write-ttyd.pid")" 2>/dev/null || true; }
+  [ -f "$STATE_DIR/frpc.pid" ] && { kill "$(cat "$STATE_DIR/frpc.pid")" 2>/dev/null || true; }
+  [ -f "$STATE_DIR/tmux_share_session" ] && { tmux kill-session -t "$(cat "$STATE_DIR/tmux_share_session")" 2>/dev/null || true; }
+  curl -sf -X DELETE "https://$SERVER/api/register/$USERNAME" \
+    -H 'Content-Type: application/json' -d "{\"token\":\"$REVOKE_TOKEN\"}" >/dev/null 2>&1 || true
+  if [ -n "$WRITE_SLUG" ]; then
+    curl -sf -X DELETE "https://$SERVER/api/register/$WRITE_SLUG" \
+      -H 'Content-Type: application/json' -d "{\"token\":\"$WRITE_REVOKE_TOKEN\"}" >/dev/null 2>&1 || true
+  fi
+}
+
+if ! wait_for_ttyd "$PORT" "$USERNAME"; then
+  cleanup_failed_start
+  die "ttyd failed to start on port $PORT — see $STATE_DIR/ttyd.log. Often means something else on this machine is already using that port; try again."
+fi
+if [ -n "$WRITE_SLUG" ] && ! wait_for_ttyd "$WRITE_PORT" "$WRITE_SLUG"; then
+  cleanup_failed_start
+  die "writable ttyd failed to start on port $WRITE_PORT — see $STATE_DIR/write-ttyd.log."
+fi
+if ! wait_for_frpc_proxy "$USERNAME"; then
+  cleanup_failed_start
+  die "tunnel failed to establish for '$USERNAME' — see $STATE_DIR/frpc.log. The relay may have handed out a port that's already taken; try again."
+fi
+if [ -n "$WRITE_SLUG" ] && ! wait_for_frpc_proxy "$WRITE_SLUG"; then
+  cleanup_failed_start
+  die "tunnel failed to establish for the writable link — see $STATE_DIR/frpc.log. Try again."
+fi
+
 # --- install a short local command, e.g. `tunl` for tunl.ac ----------------
 # So next time is just `tunl` / `tunl stop`, not the full curl one-liner.
 # The installed command just re-runs this same curl|bash — always fetches
