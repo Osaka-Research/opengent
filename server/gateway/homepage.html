@@ -116,26 +116,27 @@
     margin-top: 0.85rem;
   }
 
-  .demo-caption {
+  /* --- story: one persistent terminal, three numbered steps --- */
+  .story-wrap { margin-top: 3.2rem; }
+  .story-label {
     text-align: center;
     color: var(--accent);
-    font-size: 0.78rem;
-    font-weight: 600;
-    margin-top: 3.2rem;
-    margin-bottom: 0.6rem;
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 0.9rem;
     min-height: 1.2em;
-    transition: opacity 0.2s;
+    transition: opacity 0.25s;
   }
-
-  /* --- terminal demo (kept dark — reads as a real terminal) --- */
-  .demo {
+  .story-card {
     background: #0b1220;
     border: 1px solid #1c2536;
     border-radius: 12px;
     overflow: hidden;
     box-shadow: 0 24px 60px -24px rgba(15,38,84,0.35);
   }
-  .demo-bar {
+  .story-bar {
     display: flex;
     align-items: center;
     gap: 0.4rem;
@@ -143,145 +144,123 @@
     border-bottom: 1px solid #1c2536;
     background: #0e1626;
   }
-  .demo-bar span {
+  .story-bar span {
     width: 10px; height: 10px;
     border-radius: 50%;
     background: #263248;
   }
-  .demo-body {
+  .story-body {
     padding: 1.1rem 1.2rem 1.3rem;
     font-family: var(--mono);
     font-size: 0.82rem;
     line-height: 1.7;
-    min-height: 128px;
+    min-height: 148px;
     white-space: pre-wrap;
     word-break: break-word;
     color: #d7e0f0;
   }
-  .demo-body .p { color: #4a5b78; }
-  .demo-body .out { color: #eef3fb; }
-  .demo-body .ok { color: #5b9bff; font-weight: 600; }
-  .demo-body .dim { color: #7688a8; }
-  .demo-body .user { color: #eef3fb; }
-  .demo-body .agent { color: #5be0a3; }
-  #demo-cursor {
+  .story-body .p { color: #4a5b78; }
+  .story-body .out { color: #eef3fb; }
+  .story-body .ok { color: #5b9bff; font-weight: 600; }
+  .story-body .dim { color: #7688a8; }
+  .story-body .agent { color: #5be0a3; }
+  #story-cursor {
     display: inline-block;
     width: 7px; height: 1em;
     background: #5b9bff;
     vertical-align: text-bottom;
     animation: blink 1s steps(1) infinite;
   }
-
-  /* --- scan-to-phone --- */
-  .scan-section { margin-top: 3.8rem; }
-  .scan-label {
-    text-align: center;
-    color: var(--text-dimmer);
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-weight: 600;
-    margin-bottom: 1.2rem;
-  }
-  .scan-mock {
+  .story-scan {
     display: flex;
     align-items: center;
-    justify-content: center;
-    gap: 1.4rem;
-    flex-wrap: wrap;
+    gap: 0.7rem;
+    margin-top: 0.8rem;
+    padding-top: 0.8rem;
+    border-top: 1px dashed #1c2536;
+    opacity: 0;
+    transition: opacity 0.4s;
   }
-  .scan-terminal {
-    background: #0b1220;
-    border: 1px solid #1c2536;
-    border-radius: 12px;
-    overflow: hidden;
-    width: 240px;
-    box-shadow: 0 20px 50px -20px rgba(15,38,84,0.35);
-    flex-shrink: 0;
-  }
-  .scan-terminal .demo-bar { padding: 0.6rem 0.8rem; }
-  .scan-terminal-body {
-    padding: 0.9rem 1rem 1.1rem;
-    font-family: var(--mono);
-    font-size: 0.68rem;
-    line-height: 1.6;
-  }
-  .scan-terminal-body .dim { color: #7688a8; }
-  .scan-terminal-body .ok { color: #5b9bff; font-weight: 600; }
-  .scan-qr {
-    display: block;
-    margin: 0.6rem auto 0.2rem;
+  .story-scan.show { opacity: 1; }
+  .story-qr {
     border-radius: 4px;
     background: #fff;
-    padding: 6px;
-  }
-  .scan-arrow {
+    padding: 4px;
     flex-shrink: 0;
-    color: var(--border-hover);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 0.3rem;
   }
-  .scan-arrow .cam { font-size: 1.3rem; }
-  .scan-arrow svg { display: block; }
-  @media (max-width: 620px) {
-    .scan-mock { flex-direction: column; }
-    .scan-arrow svg { transform: rotate(90deg); width: 40px; }
-  }
-  .phone {
+  .story-scan-arrow { color: #3a4a63; flex-shrink: 0; font-size: 1rem; }
+  .story-phone {
     flex-shrink: 0;
-    width: 132px;
-    height: 264px;
-    background: #0b1526;
-    border-radius: 22px;
-    padding: 8px;
-    box-shadow: 0 20px 50px -20px rgba(15,38,84,0.35);
+    width: 62px;
+    height: 118px;
+    background: #1a2438;
+    border-radius: 11px;
+    padding: 4px;
   }
-  .phone-notch {
-    width: 44px;
-    height: 5px;
-    border-radius: 3px;
-    background: #263248;
-    margin: 0 auto 6px;
-  }
-  .phone-screen {
+  .story-phone-screen {
     background: #fff;
-    border-radius: 14px;
-    height: calc(100% - 11px);
-    overflow: hidden;
+    border-radius: 8px;
+    height: 100%;
     display: flex;
     flex-direction: column;
+    overflow: hidden;
   }
-  .phone-addr {
+  .story-phone-addr {
     background: var(--bg-soft);
-    border-bottom: 1px solid var(--border);
-    font-family: var(--mono);
-    font-size: 0.55rem;
+    font-size: 0.32rem;
     color: var(--text-dim);
-    padding: 0.4rem 0.5rem;
+    font-family: var(--mono);
+    padding: 0.18rem 0.25rem;
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis;
   }
-  .phone-term {
+  .story-phone-term {
     flex: 1;
     background: #0b1220;
+    font-size: 0.32rem;
+    line-height: 1.5;
+    color: #5b9bff;
     font-family: var(--mono);
-    font-size: 0.56rem;
-    line-height: 1.6;
-    color: #d7e0f0;
-    padding: 0.5rem 0.55rem;
+    padding: 0.25rem;
+    white-space: pre-line;
   }
-  .phone-term .p { color: #4a5b78; }
-  .phone-term .ok { color: #5b9bff; }
-  .scan-caption {
+  .story-dots {
+    display: flex;
+    justify-content: center;
+    gap: 0.4rem;
+    margin-top: 1rem;
+  }
+  .story-dots .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: background 0.25s, transform 0.25s;
+  }
+  .story-dots .dot.active { background: var(--accent); transform: scale(1.3); }
+  .story-caption {
     text-align: center;
     color: var(--text-dim);
-    font-size: 0.82rem;
-    max-width: 38ch;
-    margin: 1.3rem auto 0;
+    font-size: 0.88rem;
+    max-width: 40ch;
+    margin: 1rem auto 0;
     line-height: 1.5;
+    min-height: 2.7em;
+  }
+  .story-footnote {
+    text-align: center;
+    color: var(--text-dimmer);
+    font-size: 0.78rem;
+    max-width: 44ch;
+    margin: 1.6rem auto 0;
+    line-height: 1.6;
+  }
+  .story-footnote code {
+    font-family: var(--mono);
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.05rem 0.35rem;
+    font-size: 0.9em;
   }
 
   /* --- works-with --- */
@@ -401,45 +380,31 @@
   </div>
   <div class="cmd-hint">no signup · no token · live in ~2 seconds</div>
 
-  <div class="demo-caption" id="demo-caption">&nbsp;</div>
-  <div class="demo">
-    <div class="demo-bar"><span></span><span></span><span></span></div>
-    <div class="demo-body" id="demo"></div>
-  </div>
-
-  <div class="scan-section">
-    <div class="scan-label">Or just scan it</div>
-    <div class="scan-mock">
-      <div class="scan-terminal">
-        <div class="demo-bar"><span></span><span></span><span></span></div>
-        <div class="scan-terminal-body">
-          <div class="dim">public link (read-only, safe to share):</div>
-          <div class="ok">https://tunl.ac/yourname/</div>
-          <canvas class="scan-qr" id="scan-qr" width="105" height="105"></canvas>
-        </div>
-      </div>
-      <div class="scan-arrow">
-        <span class="cam">📷</span>
-        <svg width="40" height="16" viewBox="0 0 40 16" fill="none">
-          <path d="M0 8h32M32 8l-6-6M32 8l-6 6" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3"/>
-        </svg>
-      </div>
-      <div class="phone">
-        <div class="phone-notch"></div>
-        <div class="phone-screen">
-          <div class="phone-addr">tunl.ac/yourname</div>
-          <div class="phone-term">
-            <div><span class="p">$</span> tmux attach-session</div>
-            <div class="ok">~/projects/site $</div>
-            <div>▍</div>
+  <div class="story-wrap">
+    <div class="story-label" id="story-label">&nbsp;</div>
+    <div class="story-card">
+      <div class="story-bar"><span></span><span></span><span></span></div>
+      <div class="story-body" id="story-body"></div>
+      <div class="story-scan" id="story-scan" style="padding: 0 1.2rem 1.1rem;">
+        <canvas class="story-qr" id="story-qr" width="60" height="60"></canvas>
+        <span class="story-scan-arrow">→</span>
+        <div class="story-phone">
+          <div class="story-phone-screen">
+            <div class="story-phone-addr">tunl.ac/yourname</div>
+            <div class="story-phone-term">~/site $&#10;▍</div>
           </div>
         </div>
       </div>
     </div>
-    <p class="scan-caption">Every link install.sh prints comes with a QR code —
-      scan it from your terminal and the exact same live session opens on
-      your phone. No app, no pairing.</p>
+    <div class="story-dots" id="story-dots">
+      <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+    </div>
+    <p class="story-caption" id="story-caption">&nbsp;</p>
   </div>
+
+  <p class="story-footnote">Same mechanism works from <code>tmux send-keys</code>
+    on your own machine, or agent-to-agent — Claude can hand GPT a link,
+    GPT can hand DeepSeek one back. No shared platform needed, just a URL.</p>
 
   <div class="works">
     <div class="works-label">Just a terminal — works with whatever's driving it</div>
@@ -510,117 +475,112 @@
     document.body.removeChild(ta);
   }
 
-  // Cycles through a few real usage patterns in the terminal window —
-  // purely illustrative (doesn't touch the real API), meant to give
-  // people ideas beyond "run the install command" — especially around
-  // driving a shared session with (or as) an AI agent.
+  // One continuous, numbered 3-step story on a single persistent
+  // terminal — replaces the earlier "six unrelated scenes cycling" demo,
+  // which had no through-line. Same link/session identity carries across
+  // all three steps so it reads as one thing happening, not a slideshow.
+  // Bonus ideas (tmux, agent-to-agent) are a static footnote instead of
+  // competing full scenes — see .story-footnote in the HTML.
   (function () {
-    const el = document.getElementById('demo');
-    const caption = document.getElementById('demo-caption');
+    const body = document.getElementById('story-body');
+    const label = document.getElementById('story-label');
+    const captionEl = document.getElementById('story-caption');
+    const dots = document.querySelectorAll('#story-dots .dot');
+    const scanRow = document.getElementById('story-scan');
 
-    const SCENES = [
-      {
-        caption: 'Start sharing in one line',
-        cmd: 'curl -sL tunl.ac/i | bash',
-        lines: [
-          { t: 'public link (read-only, safe to share):', c: 'dim' },
-          { t: 'https://tunl.ac/yourname/', c: 'ok' },
-          { t: '', c: 'dim' },
-          { t: 'private link (full control, keep secret):', c: 'dim' },
-          { t: 'https://tunl.ac/9f2a1c7e4b8d/', c: 'ok' },
-        ],
-      },
-      {
-        caption: 'Run an agent in it, chat with it live',
-        cmd: 'claude',
-        lines: [
-          { t: '> refactor the auth middleware to use the new token format', c: 'user' },
-          { t: '● Done. Updated 3 files, tests passing.', c: 'agent' },
-        ],
-      },
-      {
-        caption: 'Drive someone’s share from anywhere — just a link',
-        cmd: 'tunl type https://tunl.ac/9f2a1c7e4b8d/ "how’s the deploy going"',
-        lines: [
-          { t: '● Deploy finished 2 min ago. All green.', c: 'agent' },
-        ],
-      },
-      {
-        caption: 'Script it — hand an agent the keys to a share',
-        cmd: "tmux send-keys -t opengent-yourname 'npm test' Enter",
-        lines: [
-          { t: '✓ 148 tests passed', c: 'ok' },
-        ],
-      },
-      {
-        caption: 'Any agent can call any other agent — just a link',
-        cmd: 'tunl type https://tunl.ac/claude-box/ "review this PR for security issues"',
-        lines: [
-          { t: '● (Claude) Found 1 issue — unescaped input in the login handler, patched.', c: 'agent' },
-        ],
-      },
-      {
-        caption: 'No shared platform needed — GPT, Claude, DeepSeek, whatever',
-        cmd: 'tunl type https://tunl.ac/deepseek-box/ "optimize this SQL query"',
-        lines: [
-          { t: '● (DeepSeek) Rewrote it with a covering index — 40x faster.', c: 'agent' },
-        ],
-      },
-    ];
+    const CMD = 'curl -sL tunl.ac/i | bash';
+    const LINK_PUBLIC = 'https://tunl.ac/yourname/';
+    const LINK_PRIVATE = 'https://tunl.ac/9f2a1c7e4b8d/';
 
-    async function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+    function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+    function setBody(html) { body.innerHTML = html; }
+    function setDot(i) { dots.forEach((d, idx) => d.classList.toggle('active', idx === i)); }
 
-    function setHTML(html) { el.innerHTML = html; }
-
-    async function typeCmd(cmd) {
-      let shown = '';
-      for (const ch of cmd) {
-        shown += ch;
-        setHTML(`<span class="p">$</span> <span class="out">${shown}</span><span id="demo-cursor"></span>`);
-        await sleep(14 + Math.random() * 20);
-      }
-      await sleep(350);
+    async function setHeader(l, c) {
+      label.style.opacity = 0;
+      captionEl.style.opacity = 0;
+      await sleep(150);
+      label.textContent = l;
+      captionEl.textContent = c;
+      label.style.opacity = 1;
+      captionEl.style.opacity = 1;
     }
 
-    async function showOutput(scene) {
-      let html = `<span class="p">$</span> <span class="out">${scene.cmd}</span>\n`;
-      setHTML(html);
+    async function typeLine(prefix, text, cls) {
+      let shown = '';
+      for (const ch of text) {
+        shown += ch;
+        setBody(`${prefix}<span class="${cls}">${shown}</span><span id="story-cursor"></span>`);
+        await sleep(14 + Math.random() * 18);
+      }
+      await sleep(300);
+    }
+
+    async function step1() {
+      setDot(0);
+      scanRow.classList.remove('show');
+      setBody('');
+      await setHeader('Step 1 of 3 — Share it', 'One command turns your terminal into two links.');
+      await typeLine('<span class="p">$</span> ', CMD, 'out');
+      let html = `<span class="p">$</span> <span class="out">${CMD}</span>\n`;
+      setBody(html);
       await sleep(200);
-      for (const line of scene.lines) {
+      const lines = [
+        { t: 'public link (read-only, safe to share):', c: 'dim' },
+        { t: LINK_PUBLIC, c: 'ok' },
+        { t: '', c: 'dim' },
+        { t: 'private link (full control, keep secret):', c: 'dim' },
+        { t: LINK_PRIVATE, c: 'ok' },
+      ];
+      for (const line of lines) {
         html += `<span class="${line.c}">${line.t || '&nbsp;'}</span>\n`;
-        setHTML(html);
+        setBody(html);
         await sleep(220);
       }
-      html += `<span class="p">$</span> <span id="demo-cursor"></span>`;
-      setHTML(html);
+      await sleep(1400);
+    }
+
+    async function step2() {
+      setDot(1);
+      await setHeader('Step 2 of 3 — Open it anywhere', 'Scan the QR next to any link — the exact same session opens on your phone.');
+      scanRow.classList.add('show');
+      await sleep(2600);
+    }
+
+    async function step3() {
+      setDot(2);
+      scanRow.classList.remove('show');
+      setBody('');
+      await setHeader('Step 3 of 3 — Anyone can type into it', 'Whoever holds the private link can type — a human, or an AI agent.');
+      const msg = 'refactor the auth middleware to use the new token format';
+      await typeLine('<span class="p">&gt;</span> ', msg, 'out');
+      let html = `<span class="p">&gt;</span> <span class="out">${msg}</span>\n`;
+      setBody(html);
+      await sleep(300);
+      html += `<span class="agent">● Done. Updated 3 files, tests passing.</span>\n`;
+      setBody(html);
+      await sleep(2600);
     }
 
     async function loop() {
-      let i = 0;
       while (true) {
-        const scene = SCENES[i % SCENES.length];
-        caption.style.opacity = 0;
-        await sleep(150);
-        caption.textContent = scene.caption;
-        caption.style.opacity = 1;
-        await typeCmd(scene.cmd);
-        await showOutput(scene);
-        await sleep(3000);
-        i++;
+        await step1();
+        await step2();
+        await step3();
       }
     }
     loop();
   })();
 
-  // Decorative QR pattern for the scan-to-phone mockup — a real finder
-  // pattern in each corner (what makes something visually read as "a QR
-  // code") plus a fixed pseudo-random fill. Illustrative only, not a
-  // scannable code; the real ones come from `qrencode` in install.sh.
+  // Decorative QR pattern for step 2 — a real finder pattern in each
+  // corner (what makes something visually read as "a QR code") plus a
+  // fixed pseudo-random fill. Illustrative only, not a scannable code;
+  // the real ones come from `qrencode` in install.sh.
   (function () {
-    const canvas = document.getElementById('scan-qr');
+    const canvas = document.getElementById('story-qr');
     if (!canvas || !canvas.getContext) return;
     const ctx = canvas.getContext('2d');
-    const modules = 21;
+    const modules = 15;
     const size = canvas.width / modules;
 
     ctx.fillStyle = '#fff';
