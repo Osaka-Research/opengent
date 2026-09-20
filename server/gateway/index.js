@@ -66,6 +66,23 @@ before the command to skip the writable link.
 Optionally set OPENGENT_SHELL="<command>" to share a specific command
 (a build, a log tail, a long job) instead of a plain shell.
 
+Want to drive the shared session yourself (e.g. start \`claude\` in it and
+have a conversation), from the same agent/shell that ran the command
+above, with no browser? Unless OPENGENT_WRITABLE=0 was set, install.sh
+put that session in a local tmux session named \`opengent-<username>\`
+(pick the username, or read \`~/.opengent/<username>/tmux_share_session\`).
+Drive it directly:
+
+  tmux send-keys -t opengent-<username> 'claude' Enter
+  sleep 3
+  tmux send-keys -t opengent-<username> 'how are you' Enter
+  sleep 3
+  tmux capture-pane -t opengent-<username> -p
+
+That's real input into the exact session both links point at — anyone
+watching the public link sees it happen live, and the private link
+still works for a human to type into from a browser instead.
+
 Stop sharing:
 
   curl -sL ${OPENGENT_DOMAIN}/i | bash -s -- stop
