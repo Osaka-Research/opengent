@@ -216,6 +216,17 @@ if [ ! -x "$FRPC_BIN" ]; then
   rm -rf "$STATE_ROOT/tmp"
 fi
 
+# --- install qrencode, best-effort ----------------------------------------
+# Only useful for the human-at-a-terminal case (scan with a phone), so
+# only bother installing it when stdout is an actual terminal; skip
+# silently on failure — a QR code is a nicety, never worth a die().
+if [ -t 1 ] && ! command -v qrencode >/dev/null; then
+  if [ "$IS_TERMUX" = 1 ]; then pkg install -y libqrencode >/dev/null 2>&1
+  elif [ "$OS" = "Linux" ]; then sudo apt-get install -y qrencode >/dev/null 2>&1
+  elif [ "$OS" = "Darwin" ]; then brew install qrencode >/dev/null 2>&1
+  fi
+fi
+
 # --- register with the relay ----------------------------------------------
 # If we've registered this slug before (meta.json survived a restart),
 # send its token back so the server can tell a legit retry apart from
@@ -328,6 +339,31 @@ if [[ "$SHARE_CMD" != tmux\ attach* ]]; then
   SHARE_CMD="tmux attach -t $TMUX_SHARE_SESSION"
 fi
 
+# --- custom ttyd page title, so the browser tab reads the domain ----------
+# ttyd's own default page title ("ttyd - Terminal") is a static asset;
+# `-t titleFixed=` only rewrites document.title after the client JS
+# connects, so the tab briefly flashes the default first. Fetch ttyd's
+# actual default page once (from the ttyd binary itself, so this tracks
+# whatever version is actually installed instead of a vendored copy)
+# and swap just the <title>. Best-effort — falls back to ttyd's default
+# on any failure, never blocks the share.
+CUSTOM_INDEX="$STATE_ROOT/ttyd-index-$SERVER.html"
+if [ ! -s "$CUSTOM_INDEX" ]; then
+  TMP_PORT=$(( (RANDOM % 5000) + 20000 ))
+  nohup ttyd -p "$TMP_PORT" -i 127.0.0.1 true >/dev/null 2>&1 &
+  TMP_TTYD_PID=$!
+  disown 2>/dev/null || true
+  sleep 0.5
+  curl -s "http://127.0.0.1:$TMP_PORT/" -o "$CUSTOM_INDEX.tmp" 2>/dev/null
+  kill "$TMP_TTYD_PID" 2>/dev/null || true
+  if [ -s "$CUSTOM_INDEX.tmp" ]; then
+    sed "s|<title>ttyd - Terminal</title>|<title>$SERVER</title>|" "$CUSTOM_INDEX.tmp" > "$CUSTOM_INDEX" 2>/dev/null
+  fi
+  rm -f "$CUSTOM_INDEX.tmp"
+fi
+INDEX_ARGS=()
+[ -s "$CUSTOM_INDEX" ] && INDEX_ARGS=(-I "$CUSTOM_INDEX")
+
 # --- start the public terminal -------------------------------------------
 # Public and read-only, always — like watching a stream, not
 # remote-controlling someone's shell. The read-only guarantee comes
@@ -336,7 +372,7 @@ fi
 # which doesn't just stop that one client from typing, it blocks *all*
 # input into the session, including from another process's `tmux
 # send-keys` and from ttyd's own -W on the separate writable link below.
-nohup ttyd -p "$PORT" -i 127.0.0.1 -b "/$USERNAME" $SHARE_CMD \
+nohup ttyd -p "$PORT" -i 127.0.0.1 -b "/$USERNAME" "${INDEX_ARGS[@]}" $SHARE_CMD \
   >"$STATE_DIR/ttyd.log" 2>&1 &
 echo $! > "$STATE_DIR/ttyd.pid"
 disown 2>/dev/null || true
@@ -345,7 +381,7 @@ disown 2>/dev/null || true
 # No password: the URL itself is the credential (a ~103-bit random slug).
 # Anyone who has it can type; nobody has to type or store a password.
 if [ -n "$WRITE_SLUG" ]; then
-  nohup ttyd -p "$WRITE_PORT" -i 127.0.0.1 -b "/$WRITE_SLUG" -W $SHARE_CMD \
+  nohup ttyd -p "$WRITE_PORT" -i 127.0.0.1 -b "/$WRITE_SLUG" -W "${INDEX_ARGS[@]}" $SHARE_CMD \
     >"$STATE_DIR/write-ttyd.log" 2>&1 &
   echo $! > "$STATE_DIR/write-ttyd.pid"
   disown 2>/dev/null || true
@@ -387,9 +423,17 @@ else
   C_DIM=''; C_GREEN=''; C_BOLD=''; C_RESET=''
 fi
 
+show_qr() {
+  if [ -t 1 ] && command -v qrencode >/dev/null 2>&1; then
+    qrencode -t ANSIUTF8 "$1"
+  fi
+}
+
 printf '\n%s\n%s%s%s\n' "${C_DIM}public link (read-only, safe to share):${C_RESET}" "$C_GREEN" "https://$SERVER/$USERNAME/" "$C_RESET"
+show_qr "https://$SERVER/$USERNAME/"
 if [ -n "$WRITE_SLUG" ]; then
   printf '\n%s\n%s%s%s\n' "${C_DIM}private link (full control, keep secret):${C_RESET}" "$C_GREEN" "https://$SERVER/$WRITE_SLUG/" "$C_RESET"
+  show_qr "https://$SERVER/$WRITE_SLUG/"
 fi
 if [ -n "${CLI_INSTALLED:-}" ] && command -v "$CLI_NAME" >/dev/null 2>&1; then
   printf '\n%s %s%s%s\n' "${C_DIM}next time, just run:${C_RESET}" "$C_BOLD" "$CLI_NAME" "$C_RESET"
