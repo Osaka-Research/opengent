@@ -227,84 +227,6 @@ if [ -t 1 ] && ! command -v qrencode >/dev/null; then
   fi
 fi
 
-# --- register with the relay ----------------------------------------------
-# If we've registered this slug before (meta.json survived a restart),
-# send its token back so the server can tell a legit retry apart from
-# someone else trying to grab our slug.
-PREV_TOKEN=""
-[ -f "$STATE_DIR/meta.json" ] && PREV_TOKEN="$(grep -o '"revokeToken":"[^"]*"' "$STATE_DIR/meta.json" | cut -d'"' -f4)"
-RESP="$(curl -sf -X POST "https://$SERVER/api/register" \
-  -H 'Content-Type: application/json' \
-  -d "{\"username\":\"$USERNAME\",\"authToken\":\"$ACCOUNT_TOKEN\",\"token\":\"$PREV_TOKEN\"}")" \
-  || die "registration failed — username taken, bad token, or server unreachable"
-
-PORT="$(echo "$RESP" | grep -o '"port":[0-9]*' | grep -o '[0-9]*')"
-REVOKE_TOKEN="$(echo "$RESP" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)"
-[ -n "$PORT" ] || die "bad response from server: $RESP"
-echo "{\"revokeToken\":\"$REVOKE_TOKEN\",\"port\":$PORT}" > "$STATE_DIR/meta.json"
-
-# --- register a second, unlisted slug for the writable link ----------------
-# On by default: every share gets a writable link alongside the read-only
-# one. A random-hash slug instead of a password: capability-URL style —
-# anyone holding the link can type, nobody has to type or store a
-# password. Kept out of the homepage directory (unlisted:true) so it
-# can't be found by browsing, only by having the link. Same account as
-# the primary slug — SELF_SERVE_MAX_SLUGS covers both.
-# Set OPENGENT_WRITABLE=0 to skip it and share read-only only.
-WRITABLE="${OPENGENT_WRITABLE:-1}"
-WRITE_SLUG=""
-WRITE_PORT=""
-if [ "$WRITABLE" = 1 ]; then
-  WRITE_SLUG_FILE="$STATE_DIR/write_slug"
-  if [ -f "$WRITE_SLUG_FILE" ]; then
-    WRITE_SLUG="$(cat "$WRITE_SLUG_FILE")"
-  else
-    WRITE_SLUG="$(head -c 32 /dev/urandom | base64 | tr '[:upper:]' '[:lower:]' | tr -dc 'a-z0-9' | head -c 20)"
-    printf '%s' "$WRITE_SLUG" > "$WRITE_SLUG_FILE"
-  fi
-
-  PREV_WRITE_TOKEN=""
-  [ -f "$STATE_DIR/write_meta.json" ] && PREV_WRITE_TOKEN="$(grep -o '"revokeToken":"[^"]*"' "$STATE_DIR/write_meta.json" | cut -d'"' -f4)"
-  WRITE_RESP="$(curl -sf -X POST "https://$SERVER/api/register" \
-    -H 'Content-Type: application/json' \
-    -d "{\"username\":\"$WRITE_SLUG\",\"authToken\":\"$ACCOUNT_TOKEN\",\"token\":\"$PREV_WRITE_TOKEN\",\"unlisted\":true}")" \
-    || die "registering the writable link failed"
-  WRITE_PORT="$(echo "$WRITE_RESP" | grep -o '"port":[0-9]*' | grep -o '[0-9]*')"
-  WRITE_REVOKE_TOKEN="$(echo "$WRITE_RESP" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)"
-  [ -n "$WRITE_PORT" ] || die "bad response from server for writable link: $WRITE_RESP"
-  echo "{\"revokeToken\":\"$WRITE_REVOKE_TOKEN\",\"port\":$WRITE_PORT}" > "$STATE_DIR/write_meta.json"
-fi
-
-# --- write frpc config + start ---------------------------------------------
-cat > "$STATE_DIR/frpc.toml" <<EOF
-serverAddr = "$SERVER"
-serverPort = 7000
-auth.method = "token"
-auth.token = "$FRP_TOKEN"
-
-[[proxies]]
-name = "$USERNAME"
-type = "tcp"
-localIP = "127.0.0.1"
-localPort = $PORT
-remotePort = $PORT
-EOF
-if [ -n "$WRITE_SLUG" ]; then
-  cat >> "$STATE_DIR/frpc.toml" <<EOF
-
-[[proxies]]
-name = "$WRITE_SLUG"
-type = "tcp"
-localIP = "127.0.0.1"
-localPort = $WRITE_PORT
-remotePort = $WRITE_PORT
-EOF
-fi
-
-nohup "$FRPC_BIN" -c "$STATE_DIR/frpc.toml" >"$STATE_DIR/frpc.log" 2>&1 &
-echo $! > "$STATE_DIR/frpc.pid"
-disown 2>/dev/null || true
-
 # Already inside tmux and no explicit OPENGENT_SHELL? Stream *this exact
 # pane* — attaching another client to a live tmux session is safe (no new
 # process, no risk to what's already running there), unlike trying to
@@ -354,7 +276,7 @@ if [ ! -s "$CUSTOM_INDEX" ]; then
   TMP_TTYD_PID=$!
   disown 2>/dev/null || true
   sleep 0.5
-  curl -s "http://127.0.0.1:$TMP_PORT/" -o "$CUSTOM_INDEX.tmp" 2>/dev/null
+  curl -s --max-time 2 "http://127.0.0.1:$TMP_PORT/" -o "$CUSTOM_INDEX.tmp" 2>/dev/null
   kill "$TMP_TTYD_PID" 2>/dev/null || true
   if [ -s "$CUSTOM_INDEX.tmp" ]; then
     sed "s|<title>ttyd - Terminal</title>|<title>$SERVER</title>|" "$CUSTOM_INDEX.tmp" > "$CUSTOM_INDEX" 2>/dev/null
@@ -364,42 +286,68 @@ fi
 INDEX_ARGS=()
 [ -s "$CUSTOM_INDEX" ] && INDEX_ARGS=(-I "$CUSTOM_INDEX")
 
-# --- start the public terminal -------------------------------------------
-# Public and read-only, always — like watching a stream, not
-# remote-controlling someone's shell. The read-only guarantee comes
-# entirely from ttyd itself (it never forwards a keystroke to the pty
-# unless given -W) — deliberately not from tmux's own `-r` client flag,
-# which doesn't just stop that one client from typing, it blocks *all*
-# input into the session, including from another process's `tmux
-# send-keys` and from ttyd's own -W on the separate writable link below.
-nohup ttyd -p "$PORT" -i 127.0.0.1 -b "/$USERNAME" "${INDEX_ARGS[@]}" $SHARE_CMD \
-  >"$STATE_DIR/ttyd.log" 2>&1 &
-echo $! > "$STATE_DIR/ttyd.pid"
-disown 2>/dev/null || true
+# --- register with the relay ----------------------------------------------
+# If we've registered this slug before (meta.json survived a restart),
+# send its token back so the server can tell a legit retry apart from
+# someone else trying to grab our slug.
+PREV_TOKEN=""
+[ -f "$STATE_DIR/meta.json" ] && PREV_TOKEN="$(grep -o '"revokeToken":"[^"]*"' "$STATE_DIR/meta.json" | cut -d'"' -f4)"
+RESP="$(curl -sf -X POST "https://$SERVER/api/register" \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$USERNAME\",\"authToken\":\"$ACCOUNT_TOKEN\",\"token\":\"$PREV_TOKEN\"}")" \
+  || die "registration failed — username taken, bad token, or server unreachable"
+PORT="$(echo "$RESP" | grep -o '"port":[0-9]*' | grep -o '[0-9]*')"
+REVOKE_TOKEN="$(echo "$RESP" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)"
+[ -n "$PORT" ] || die "bad response from server: $RESP"
+echo "{\"revokeToken\":\"$REVOKE_TOKEN\",\"port\":$PORT}" > "$STATE_DIR/meta.json"
 
-# --- start the writable link, if requested --------------------------------
-# No password: the URL itself is the credential (a ~103-bit random slug).
-# Anyone who has it can type; nobody has to type or store a password.
-if [ -n "$WRITE_SLUG" ]; then
-  nohup ttyd -p "$WRITE_PORT" -i 127.0.0.1 -b "/$WRITE_SLUG" -W "${INDEX_ARGS[@]}" $SHARE_CMD \
-    >"$STATE_DIR/write-ttyd.log" 2>&1 &
-  echo $! > "$STATE_DIR/write-ttyd.pid"
-  disown 2>/dev/null || true
+# --- register a second, unlisted slug for the writable link ----------------
+# On by default: every share gets a writable link alongside the read-only
+# one. A random-hash slug instead of a password: capability-URL style —
+# anyone holding the link can type, nobody has to type or store a
+# password. Kept out of the homepage directory (unlisted:true) so it
+# can't be found by browsing, only by having the link. Same account as
+# the primary slug — SELF_SERVE_MAX_SLUGS covers both.
+# Set OPENGENT_WRITABLE=0 to skip it and share read-only only.
+WRITABLE="${OPENGENT_WRITABLE:-1}"
+WRITE_SLUG=""
+WRITE_PORT=""
+if [ "$WRITABLE" = 1 ]; then
+  WRITE_SLUG_FILE="$STATE_DIR/write_slug"
+  if [ -f "$WRITE_SLUG_FILE" ]; then
+    WRITE_SLUG="$(cat "$WRITE_SLUG_FILE")"
+  else
+    WRITE_SLUG="$(head -c 32 /dev/urandom | base64 | tr '[:upper:]' '[:lower:]' | tr -dc 'a-z0-9' | head -c 20)"
+    printf '%s' "$WRITE_SLUG" > "$WRITE_SLUG_FILE"
+  fi
+
+  PREV_WRITE_TOKEN=""
+  [ -f "$STATE_DIR/write_meta.json" ] && PREV_WRITE_TOKEN="$(grep -o '"revokeToken":"[^"]*"' "$STATE_DIR/write_meta.json" | cut -d'"' -f4)"
+  WRITE_RESP="$(curl -sf -X POST "https://$SERVER/api/register" \
+    -H 'Content-Type: application/json' \
+    -d "{\"username\":\"$WRITE_SLUG\",\"authToken\":\"$ACCOUNT_TOKEN\",\"token\":\"$PREV_WRITE_TOKEN\",\"unlisted\":true}")" \
+    || die "registering the writable link failed"
+  WRITE_PORT="$(echo "$WRITE_RESP" | grep -o '"port":[0-9]*' | grep -o '[0-9]*')"
+  WRITE_REVOKE_TOKEN="$(echo "$WRITE_RESP" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)"
+  [ -n "$WRITE_PORT" ] || die "bad response from server for writable link: $WRITE_RESP"
+  echo "{\"revokeToken\":\"$WRITE_REVOKE_TOKEN\",\"port\":$WRITE_PORT}" > "$STATE_DIR/write_meta.json"
 fi
 
-# --- verify the share actually came up -------------------------------------
-# Printing success links regardless of whether ttyd/frpc actually bound
-# was worse than erroring: a dead link gives no signal anything's wrong
-# until someone tries it. Check locally (ttyd answering on its port) and
-# check frpc's own log for its authoritative per-proxy success/failure
-# line, and fail loudly — with cleanup — instead of pretending it worked.
-# State dir (and its logs) deliberately left in place on failure, for
-# debugging — only the "stop" action removes it.
+# --- start ttyd/frpc, retrying with a fresh LOCAL port on failure ----------
+# A user doesn't want a cause, they want it to work. The one thing that
+# actually goes wrong here in practice is this machine's own local port
+# already being in use — re-registering doesn't help with that (the
+# relay hands back the same lowest free port every time; verified this
+# empirically — it's not the fix). What actually fixes it: ttyd's LOCAL
+# bind port doesn't have to match frp's REMOTE port at all. frp forwards
+# localPort -> remotePort, so keep remotePort ($PORT, from the relay)
+# fixed and just pick a fresh random local port each retry — no
+# re-registration, no network round-trip, just try another local port.
 wait_for_ttyd() {
   local port="$1" base_path="$2" tries=0
-  while [ "$tries" -lt 25 ]; do
-    [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/$base_path/" 2>/dev/null)" = "200" ] && return 0
-    sleep 0.2
+  while [ "$tries" -lt 10 ]; do
+    [ "$(curl -s --max-time 0.5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/$base_path/" 2>/dev/null)" = "200" ] && return 0
+    sleep 0.1
     tries=$((tries + 1))
   done
   return 1
@@ -407,19 +355,93 @@ wait_for_ttyd() {
 
 wait_for_frpc_proxy() {
   local name="$1" tries=0
-  while [ "$tries" -lt 25 ]; do
+  while [ "$tries" -lt 10 ]; do
     grep -q "\[$name\] start error" "$STATE_DIR/frpc.log" 2>/dev/null && return 1
     grep -q "proxy added:.*$name" "$STATE_DIR/frpc.log" 2>/dev/null && return 0
-    sleep 0.2
+    sleep 0.1
     tries=$((tries + 1))
   done
   return 1
 }
 
-cleanup_failed_start() {
+random_local_port() { echo $(( (RANDOM % 20000) + 30000 )); }
+
+STARTED=0
+MAX_ATTEMPTS=5
+for ATTEMPT in $(seq 1 $MAX_ATTEMPTS); do
+  LOCAL_PORT="$(random_local_port)"
+  WRITE_LOCAL_PORT=""
+  [ -n "$WRITE_SLUG" ] && WRITE_LOCAL_PORT="$(random_local_port)"
+
+  cat > "$STATE_DIR/frpc.toml" <<EOF
+serverAddr = "$SERVER"
+serverPort = 7000
+auth.method = "token"
+auth.token = "$FRP_TOKEN"
+
+[[proxies]]
+name = "$USERNAME"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = $LOCAL_PORT
+remotePort = $PORT
+EOF
+  if [ -n "$WRITE_SLUG" ]; then
+    cat >> "$STATE_DIR/frpc.toml" <<EOF
+
+[[proxies]]
+name = "$WRITE_SLUG"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = $WRITE_LOCAL_PORT
+remotePort = $WRITE_PORT
+EOF
+  fi
+
+  nohup "$FRPC_BIN" -c "$STATE_DIR/frpc.toml" >"$STATE_DIR/frpc.log" 2>&1 &
+  echo $! > "$STATE_DIR/frpc.pid"
+  disown 2>/dev/null || true
+
+  # --- start the public terminal -------------------------------------------
+  # Public and read-only, always — like watching a stream, not
+  # remote-controlling someone's shell. The read-only guarantee comes
+  # entirely from ttyd itself (it never forwards a keystroke to the pty
+  # unless given -W) — deliberately not from tmux's own `-r` client flag,
+  # which doesn't just stop that one client from typing, it blocks *all*
+  # input into the session, including from another process's `tmux
+  # send-keys` and from ttyd's own -W on the separate writable link below.
+  nohup ttyd -p "$LOCAL_PORT" -i 127.0.0.1 -b "/$USERNAME" "${INDEX_ARGS[@]}" $SHARE_CMD \
+    >"$STATE_DIR/ttyd.log" 2>&1 &
+  echo $! > "$STATE_DIR/ttyd.pid"
+  disown 2>/dev/null || true
+
+  # --- start the writable link, if requested --------------------------------
+  # No password: the URL itself is the credential (a ~103-bit random slug).
+  # Anyone who has it can type; nobody has to type or store a password.
+  if [ -n "$WRITE_SLUG" ]; then
+    nohup ttyd -p "$WRITE_LOCAL_PORT" -i 127.0.0.1 -b "/$WRITE_SLUG" -W "${INDEX_ARGS[@]}" $SHARE_CMD \
+      >"$STATE_DIR/write-ttyd.log" 2>&1 &
+    echo $! > "$STATE_DIR/write-ttyd.pid"
+    disown 2>/dev/null || true
+  fi
+
+  # --- verify the share actually came up -----------------------------------
+  OK=1
+  wait_for_ttyd "$LOCAL_PORT" "$USERNAME" || OK=0
+  [ "$OK" = 1 ] && [ -n "$WRITE_SLUG" ] && { wait_for_ttyd "$WRITE_LOCAL_PORT" "$WRITE_SLUG" || OK=0; }
+  [ "$OK" = 1 ] && { wait_for_frpc_proxy "$USERNAME" || OK=0; }
+  [ "$OK" = 1 ] && [ -n "$WRITE_SLUG" ] && { wait_for_frpc_proxy "$WRITE_SLUG" || OK=0; }
+
+  if [ "$OK" = 1 ]; then
+    STARTED=1
+    break
+  fi
   [ -f "$STATE_DIR/ttyd.pid" ] && { kill "$(cat "$STATE_DIR/ttyd.pid")" 2>/dev/null || true; }
   [ -f "$STATE_DIR/write-ttyd.pid" ] && { kill "$(cat "$STATE_DIR/write-ttyd.pid")" 2>/dev/null || true; }
   [ -f "$STATE_DIR/frpc.pid" ] && { kill "$(cat "$STATE_DIR/frpc.pid")" 2>/dev/null || true; }
+done
+
+if [ "$STARTED" != 1 ]; then
   [ -f "$STATE_DIR/tmux_share_session" ] && { tmux kill-session -t "$(cat "$STATE_DIR/tmux_share_session")" 2>/dev/null || true; }
   curl -sf -X DELETE "https://$SERVER/api/register/$USERNAME" \
     -H 'Content-Type: application/json' -d "{\"token\":\"$REVOKE_TOKEN\"}" >/dev/null 2>&1 || true
@@ -427,23 +449,7 @@ cleanup_failed_start() {
     curl -sf -X DELETE "https://$SERVER/api/register/$WRITE_SLUG" \
       -H 'Content-Type: application/json' -d "{\"token\":\"$WRITE_REVOKE_TOKEN\"}" >/dev/null 2>&1 || true
   fi
-}
-
-if ! wait_for_ttyd "$PORT" "$USERNAME"; then
-  cleanup_failed_start
-  die "ttyd failed to start on port $PORT — see $STATE_DIR/ttyd.log. Often means something else on this machine is already using that port; try again."
-fi
-if [ -n "$WRITE_SLUG" ] && ! wait_for_ttyd "$WRITE_PORT" "$WRITE_SLUG"; then
-  cleanup_failed_start
-  die "writable ttyd failed to start on port $WRITE_PORT — see $STATE_DIR/write-ttyd.log."
-fi
-if ! wait_for_frpc_proxy "$USERNAME"; then
-  cleanup_failed_start
-  die "tunnel failed to establish for '$USERNAME' — see $STATE_DIR/frpc.log. The relay may have handed out a port that's already taken; try again."
-fi
-if [ -n "$WRITE_SLUG" ] && ! wait_for_frpc_proxy "$WRITE_SLUG"; then
-  cleanup_failed_start
-  die "tunnel failed to establish for the writable link — see $STATE_DIR/frpc.log. Try again."
+  die "couldn't get a share running after $MAX_ATTEMPTS tries (all local ports somehow unavailable) — see $STATE_DIR/ttyd.log and $STATE_DIR/frpc.log."
 fi
 
 # --- install a short local command, e.g. `tunl` for tunl.ac ----------------
