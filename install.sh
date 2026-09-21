@@ -84,6 +84,13 @@ detect_agent_tag() {
   printf ''
 }
 
+# Computed once: tmux new-session inherits environment from whenever the
+# tmux *server* first started, not from this script's live shell — so a
+# long-running server never sees AI_AGENT/CLAUDECODE from a fresh run.
+# Stashed here and injected explicitly (see `tmux new-session -e` below)
+# so the shared session's env reflects reality, not stale server state.
+AGENT_DETECTED="$(detect_agent_tag)"
+
 # Turns this machine's own identity (Termux device model, hostname, or
 # whoami — whichever resolves first) into a valid slug, so a bare
 # `curl | bash` can self-provision and go live with no prompt at all.
@@ -99,7 +106,7 @@ auto_base_username() {
   raw="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
 
   local agent
-  agent="$(detect_agent_tag | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-8)"
+  agent="$(printf '%s' "$AGENT_DETECTED" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-8)"
 
   if [ -n "$agent" ]; then
     local base_len=$((16 - 1 - ${#agent}))
@@ -430,7 +437,11 @@ if [[ "$SHARE_CMD" != tmux\ attach* ]]; then
   command -v tmux >/dev/null || die "tmux is required — install it manually"
   TMUX_SHARE_SESSION="opengent-$USERNAME"
   if ! tmux has-session -t "$TMUX_SHARE_SESSION" 2>/dev/null; then
-    tmux new-session -d -s "$TMUX_SHARE_SESSION" "$SHARE_CMD"
+    if [ -n "$AGENT_DETECTED" ]; then
+      tmux new-session -d -s "$TMUX_SHARE_SESSION" -e "AI_AGENT=$AGENT_DETECTED" "$SHARE_CMD"
+    else
+      tmux new-session -d -s "$TMUX_SHARE_SESSION" "$SHARE_CMD"
+    fi
   fi
   echo "$TMUX_SHARE_SESSION" > "$STATE_DIR/tmux_share_session"
   SHARE_CMD="tmux attach -t $TMUX_SHARE_SESSION"
