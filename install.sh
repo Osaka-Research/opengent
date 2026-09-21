@@ -738,8 +738,10 @@ fi
 if [ -n "$WRITE_SLUG" ]; then
   printf '\n%s\n' "${C_DIM}drive it from anywhere else (same script, just a link):${C_RESET}"
   if [ -n "${CLI_INSTALLED:-}" ] && command -v "$CLI_NAME" >/dev/null 2>&1; then
-    printf '  %s type https://%s/%s/ '"'"'%s'"'"'\n' "$CLI_NAME" "$SERVER" "$WRITE_SLUG" "$WHOAGENT_CMD"
+    DRIVE_CMD="$CLI_NAME type https://$SERVER/$WRITE_SLUG/ '$WHOAGENT_CMD'"
   else
-    printf '  curl -sL %s/i | bash -s -- type https://%s/%s/ '"'"'%s'"'"'\n' "$SERVER" "$SERVER" "$WRITE_SLUG" "$WHOAGENT_CMD"
+    DRIVE_CMD="curl -sL $SERVER/i | bash -s -- type https://$SERVER/$WRITE_SLUG/ '$WHOAGENT_CMD'"
   fi
+  printf '  %s\n' "$DRIVE_CMD"
+  show_qr "$DRIVE_CMD"
 fi
