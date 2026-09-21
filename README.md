@@ -226,10 +226,32 @@ uncommitted draft (all three have happened).
     Keeps ttyd/frpc attached throughout (no viewer-visible disconnect),
     just wipes the shell back to a clean prompt. Check status with
     `systemctl status tunldemo-reset.timer` on that box.
+  - **On-screen terminal keyboard** (Ctrl/Esc/Tab/arrows/Home/End/PgUp/PgDn
+    for mobile, styled and behaviorally modeled after
+    github.com/Julow/Unexpected-Keyboard): unlike the two buttons above,
+    this one **is** part of `install.sh`'s general `CUSTOM_INDEX`
+    template (the `KEYBOARD_SNIPPET` heredoc, right after `COPY_SNIPPET`)
+    — every real user's ttyd page gets it automatically. It was also
+    hand-injected into the demo's already-cached page directly (same
+    "regenerate and re-add by hand" caveat as the two buttons above,
+    since that file won't pick up template changes on its own).
+  - **"Get your own private terminal" button**: on the demo page, calls
+    `POST https://tunl.ac/tunldemo-spawn/spawn` to provision an isolated
+    per-visitor share (reuses `install.sh`'s own self-serve-signup path
+    under a dedicated high-quota admin account, `tunl-private-channels`,
+    rather than the shared `tunldemo` session). **Backend not deployed
+    yet** as of 2026-09-21 — the button is live but returns an error
+    until someone runs `/tmp/deploy-control-api.sh` on the
+    `terminal-directory` box (prompts interactively for the two secrets,
+    nothing to edit by hand). That script registers the `tunldemo-spawn`
+    slug, writes an frpc proxy + systemd units for a small Node control
+    API (`/home/tunldemo/control-api/server.js`, not tracked in this
+    repo — demo-ops only) that shells out to `install.sh` per request and
+    expires each spawned channel after 15 minutes.
   - If this demo ever needs rebuilding from scratch: re-run `install.sh`
     on a box you control with `tunldemo` as the account label, repoint
     `OPENGENT_DEMO_SLUG` on `opengent-gateway` at the new public slug,
-    and redo the two customizations above (they don't survive a fresh
+    and redo the customizations above (none of them survive a fresh
     install).
 - When `OPENGENT_DEMO_SLUG` is set, `/` redirects (302) straight into
   that live terminal — the static `homepage.html` (with the marketing
