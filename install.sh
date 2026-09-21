@@ -693,22 +693,53 @@ if [ ! -s "$CUSTOM_INDEX" ]; then
   kill "$TMP_TTYD_PID" 2>/dev/null || true
   if [ -s "$CUSTOM_INDEX.tmp" ]; then
     COPY_SNIPPET="$(cat <<'HTMLEOF'
-<button id="tunl-copy-btn" type="button" style="position:fixed;right:14px;bottom:14px;z-index:99999;background:#2f6fed;color:#fff;border:none;border-radius:999px;padding:10px 16px;font:600 13px system-ui,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.3);cursor:pointer;opacity:.85">Copy</button>
+<style>
+#tunl-menu{display:none;position:fixed;z-index:100000;background:#0b1526;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.4);overflow:hidden}
+#tunl-menu.open{display:flex}
+#tunl-menu button{background:none;border:none;color:#fff;padding:10px 16px;font:600 13px system-ui,sans-serif;cursor:pointer;white-space:nowrap}
+#tunl-menu button+button{border-left:1px solid rgba(255,255,255,.15)}
+#tunl-copy-overlay{display:none;position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.55);padding:24px}
+#tunl-copy-overlay.open{display:flex;flex-direction:column}
+#tunl-copy-overlay textarea{flex:1;width:100%;box-sizing:border-box;border-radius:10px;border:none;padding:12px;font:13px ui-monospace,Menlo,Consolas,monospace;resize:none}
+#tunl-copy-overlay .row{display:flex;gap:10px;margin-top:12px}
+#tunl-copy-overlay button{flex:1;padding:12px;border:none;border-radius:8px;font:600 14px system-ui,sans-serif;cursor:pointer}
+#tunl-copy-overlay .go{background:#2f6fed;color:#fff}
+#tunl-copy-overlay .close{background:#e3e9f2;color:#0b1526}
+#tunl-copy-hint{color:#fff;font:12px system-ui,sans-serif;margin-bottom:8px;opacity:.85}
+</style>
+<div id="tunl-menu">
+  <button type="button" id="tunl-menu-copy">Copy</button>
+  <button type="button" id="tunl-menu-paste">Paste</button>
+</div>
+<div id="tunl-copy-overlay">
+  <div id="tunl-copy-hint">Tap-and-hold the text to drag the selection handles, then use your phone's own Copy — or just tap "copy all" below.</div>
+  <textarea id="tunl-copy-text" readonly></textarea>
+  <div class="row">
+    <button class="go" type="button" id="tunl-copy-all">copy all</button>
+    <button class="close" type="button" id="tunl-copy-close">close</button>
+  </div>
+</div>
 <script>
 (function(){
+  // xterm.js (what ttyd embeds) draws its own canvas-based selection
+  // with no OS integration at all — no touch handling whatsoever, so a
+  // finger never gets real drag handles or even a plain tap-to-copy on
+  // the terminal itself (upstream gap, not something we can patch:
+  // xtermjs/xterm.js#5377, #3727, #1101). This replaces that with a
+  // long-press-anywhere-on-the-terminal gesture (matching how text
+  // selection normally works on a phone) that pops a small Copy/Paste
+  // menu at the touch point. Desktop mouse is untouched — click-drag
+  // selection + Ctrl+C already work fine there.
+  var LONG_PRESS_MS=450,MOVE_CANCEL_PX=12;
+
   function screenText(term){
     var buf=term.buffer.active,lines=[];
     for(var i=0;i<buf.length;i++){var line=buf.getLine(i);if(line)lines.push(line.translateToString(true));}
     while(lines.length&&!lines[lines.length-1].trim())lines.pop();
     return lines.join("\n");
   }
-  function grab(){
-    var t=window.term;
-    if(!t)return "";
-    var sel=t.getSelection&&t.getSelection();
-    return (sel&&sel.length)?sel:screenText(t);
-  }
-  function flash(btn,label){var orig=btn.textContent;btn.textContent=label;setTimeout(function(){btn.textContent=orig;},1200);}
+  function flash(btn,label){var orig=btn.dataset.label||btn.textContent;btn.dataset.label=orig;btn.textContent=label;setTimeout(function(){btn.textContent=orig;},1200);}
+
   function fallbackCopy(text,btn){
     var ta=document.createElement("textarea");
     ta.value=text;ta.style.position="fixed";ta.style.left="-9999px";
@@ -717,17 +748,106 @@ if [ ! -s "$CUSTOM_INDEX" ]; then
     catch(e){flash(btn,"copy failed");}
     document.body.removeChild(ta);
   }
+  function copyNow(text,btn){
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(function(){flash(btn,"copied");}).catch(function(){fallbackCopy(text,btn);});
+    }else{
+      fallbackCopy(text,btn);
+    }
+  }
+
+  function fallbackPaste(btn){
+    var ta=document.createElement("textarea");
+    ta.style.position="fixed";ta.style.left="-9999px";
+    document.body.appendChild(ta);ta.focus();
+    var ok=false;
+    try{ok=document.execCommand("paste");}catch(e){}
+    var text=ta.value;
+    document.body.removeChild(ta);
+    if(ok&&text&&window.term){window.term.paste(text);flash(btn,"pasted");}
+    else{flash(btn,"paste blocked");}
+  }
+  function doPaste(btn){
+    if(!window.term||window.term.options.disableStdin){flash(btn,"read-only");return;}
+    if(navigator.clipboard&&navigator.clipboard.readText){
+      navigator.clipboard.readText().then(function(text){
+        if(!text){flash(btn,"clipboard empty");return;}
+        window.term.paste(text);flash(btn,"pasted");
+      }).catch(function(){fallbackPaste(btn);});
+    }else{
+      fallbackPaste(btn);
+    }
+  }
+
+  function openOverlay(){
+    var t=window.term;
+    if(!t)return;
+    var overlay=document.getElementById("tunl-copy-overlay");
+    var ta=document.getElementById("tunl-copy-text");
+    ta.value=screenText(t);
+    overlay.classList.add("open");
+    ta.focus();ta.select();
+  }
+
+  var menu=null,menuCopyBtn=null,menuPasteBtn=null;
+  function hideMenu(){if(menu)menu.classList.remove("open");}
+  function showMenu(x,y){
+    if(!menu)return;
+    if(menuPasteBtn)menuPasteBtn.style.display=(window.term&&window.term.options.disableStdin)?"none":"";
+    menu.classList.add("open");
+    var r=menu.getBoundingClientRect();
+    var left=Math.min(Math.max(4,x-r.width/2),window.innerWidth-r.width-4);
+    var top=Math.min(Math.max(4,y-r.height-14),window.innerHeight-r.height-4);
+    menu.style.left=left+"px";menu.style.top=top+"px";
+  }
+
+  // Long-press detection on the whole document (the terminal fills it):
+  // hold LONG_PRESS_MS without moving more than MOVE_CANCEL_PX, then
+  // release, pops the menu at the release point. Moving further than
+  // that cancels it (so ordinary scrolling isn't hijacked). Ignored
+  // entirely for mouse — desktop already has real selection.
+  var timer=null,ready=false,startX=0,startY=0,touchHandled=false;
+  function onDown(e){
+    if(e.pointerType==="mouse")return;
+    if(menu&&menu.contains(e.target))return;
+    hideMenu();
+    ready=false;startX=e.clientX;startY=e.clientY;
+    timer=setTimeout(function(){ready=true;},LONG_PRESS_MS);
+  }
+  function onMove(e){
+    if(!timer)return;
+    if(Math.abs(e.clientX-startX)>MOVE_CANCEL_PX||Math.abs(e.clientY-startY)>MOVE_CANCEL_PX){
+      clearTimeout(timer);timer=null;ready=false;
+    }
+  }
+  function onUp(e){
+    if(e.pointerType==="mouse")return;
+    if(timer){clearTimeout(timer);timer=null;}
+    if(ready){ready=false;touchHandled=true;showMenu(e.clientX,e.clientY);setTimeout(function(){touchHandled=false;},400);}
+  }
+  function onDocClick(e){
+    if(touchHandled)return;
+    if(menu&&!menu.contains(e.target))hideMenu();
+  }
+
   document.addEventListener("DOMContentLoaded",function(){
-    var btn=document.getElementById("tunl-copy-btn");
-    if(!btn)return;
-    btn.addEventListener("click",function(){
-      var text=grab();
-      if(!text){flash(btn,"nothing to copy");return;}
-      if(navigator.clipboard&&navigator.clipboard.writeText){
-        navigator.clipboard.writeText(text).then(function(){flash(btn,"copied");}).catch(function(){fallbackCopy(text,btn);});
-      }else{
-        fallbackCopy(text,btn);
-      }
+    menu=document.getElementById("tunl-menu");
+    menuCopyBtn=document.getElementById("tunl-menu-copy");
+    menuPasteBtn=document.getElementById("tunl-menu-paste");
+    document.addEventListener("pointerdown",onDown,{passive:true});
+    document.addEventListener("pointermove",onMove,{passive:true});
+    document.addEventListener("pointerup",onUp,{passive:true});
+    document.addEventListener("pointercancel",function(){if(timer){clearTimeout(timer);timer=null;}ready=false;},{passive:true});
+    document.addEventListener("click",onDocClick);
+    menuCopyBtn.addEventListener("click",function(){hideMenu();openOverlay();});
+    menuPasteBtn.addEventListener("click",function(){hideMenu();doPaste(menuPasteBtn);});
+    var allBtn=document.getElementById("tunl-copy-all");
+    if(allBtn)allBtn.addEventListener("click",function(){
+      copyNow(document.getElementById("tunl-copy-text").value,allBtn);
+    });
+    var closeBtn=document.getElementById("tunl-copy-close");
+    if(closeBtn)closeBtn.addEventListener("click",function(){
+      document.getElementById("tunl-copy-overlay").classList.remove("open");
     });
   });
 })();
