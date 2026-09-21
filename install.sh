@@ -679,7 +679,6 @@ printf '\n%s\n%s%s%s\n' "${C_DIM}public link (read-only, safe to share):${C_RESE
 show_qr "https://$SERVER/$USERNAME/"
 if [ -n "$WRITE_SLUG" ]; then
   printf '\n%s\n%s%s%s\n' "${C_DIM}private link (full control, keep secret):${C_RESET}" "$C_GREEN" "https://$SERVER/$WRITE_SLUG/" "$C_RESET"
-  show_qr "https://$SERVER/$WRITE_SLUG/"
 fi
 if [ -n "${CLI_INSTALLED:-}" ] && command -v "$CLI_NAME" >/dev/null 2>&1; then
   printf '\n%s %s%s%s\n' "${C_DIM}next time, just run:${C_RESET}" "$C_BOLD" "$CLI_NAME" "$C_RESET"
