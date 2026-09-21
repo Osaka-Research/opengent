@@ -383,7 +383,7 @@
         <span class="story-scan-arrow">→</span>
         <div class="story-phone">
           <div class="story-phone-screen">
-            <div class="story-phone-addr">tunl.ac/yourname</div>
+            <div class="story-phone-addr">tunl.ac/9f2a1c7e4b8d</div>
             <div class="story-phone-term">~/site $&#10;▍</div>
           </div>
         </div>
@@ -513,11 +513,11 @@
       setBody(html);
       await sleep(200);
       const lines = [
-        { t: 'public link (read-only, safe to share):', c: 'dim' },
-        { t: LINK_PUBLIC, c: 'ok' },
-        { t: '', c: 'dim' },
         { t: 'private link (full control, keep secret):', c: 'dim' },
         { t: LINK_PRIVATE, c: 'ok' },
+        { t: '', c: 'dim' },
+        { t: 'public link (read-only, safe to share):', c: 'dim' },
+        { t: LINK_PUBLIC, c: 'ok' },
       ];
       for (const line of lines) {
         html += `<span class="${line.c}">${line.t || '&nbsp;'}</span>\n`;
