@@ -246,6 +246,21 @@
     line-height: 1.5;
     min-height: 2.7em;
   }
+  .mode-row { text-align: center; margin-top: 0.4rem; }
+  .mode-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--text-dim);
+    font: inherit;
+    font-size: 0.78rem;
+    padding: 0.4rem 0.9rem;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+  .mode-btn:hover { border-color: var(--border-hover); color: var(--text); }
+  .mode-btn:active { transform: scale(0.97); }
+  .mode-btn.is-private { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-dark); }
   .story-footnote {
     text-align: center;
     color: var(--text-dimmer);
@@ -390,7 +405,7 @@
         <span class="story-scan-arrow">→</span>
         <div class="story-phone">
           <div class="story-phone-screen">
-            <div class="story-phone-addr">tunl.ac/9f2a1c7e4b8d</div>
+            <div class="story-phone-addr" id="story-phone-addr">tunl.ac/yourname</div>
             <div class="story-phone-term">~/site $&#10;▍</div>
           </div>
         </div>
@@ -400,6 +415,9 @@
       <span class="dot"></span><span class="dot"></span><span class="dot"></span>
     </div>
     <p class="story-caption" id="story-caption">&nbsp;</p>
+    <div class="mode-row">
+      <button class="mode-btn" id="mode-btn" type="button">start private session</button>
+    </div>
   </div>
 
   <p class="story-footnote">Same mechanism works from <code>tmux send-keys</code>
@@ -487,10 +505,27 @@
     const captionEl = document.getElementById('story-caption');
     const dots = document.querySelectorAll('#story-dots .dot');
     const scanRow = document.getElementById('story-scan');
+    const phoneAddr = document.getElementById('story-phone-addr');
+    const modeBtn = document.getElementById('mode-btn');
 
     const CMD = 'curl -sL tunl.ac/i | bash';
     const LINK_PUBLIC = 'https://tunl.ac/yourname/';
     const LINK_PRIVATE = 'https://tunl.ac/9f2a1c7e4b8d/';
+
+    // Starts public (read-only) — the button flips the phone mock over
+    // to the private (writable) link, so a visitor can literally toggle
+    // between the two rather than only reading about the difference.
+    let isPrivate = false;
+    function renderMode() {
+      phoneAddr.textContent = isPrivate ? 'tunl.ac/9f2a1c7e4b8d' : 'tunl.ac/yourname';
+      modeBtn.textContent = isPrivate ? 'back to public link' : 'start private session';
+      modeBtn.classList.toggle('is-private', isPrivate);
+    }
+    modeBtn.addEventListener('click', () => {
+      isPrivate = !isPrivate;
+      renderMode();
+    });
+    renderMode();
 
     function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
     function setBody(html) { body.innerHTML = html; }
