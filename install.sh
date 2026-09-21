@@ -380,7 +380,7 @@ elif [ -f "$TOKEN_FILE" ]; then
   FRP_TOKEN="$(cut -d. -f1 "$TOKEN_FILE")"
   ACCOUNT_TOKEN="$(cut -d. -f2- "$TOKEN_FILE")"
 else
-  SIGNUP_RESP="$(curl -sf -X POST "https://$SERVER/api/signup" \
+  SIGNUP_RESP="$(curl -sf --retry 2 --retry-delay 1 -X POST "https://$SERVER/api/signup" \
     -H 'Content-Type: application/json' -d "{\"username\":\"$USERNAME\"}")" \
     || die "signup failed — username may be taken (if it's yours, re-run with OPENGENT_TOKEN=<saved token>) or the server is unreachable"
   FRP_TOKEN="$(echo "$SIGNUP_RESP" | grep -o '"frpToken":"[^"]*"' | cut -d'"' -f4)"
@@ -745,7 +745,7 @@ INDEX_ARGS=()
 # someone else trying to grab our slug.
 PREV_TOKEN=""
 [ -f "$STATE_DIR/meta.json" ] && PREV_TOKEN="$(grep -o '"revokeToken":"[^"]*"' "$STATE_DIR/meta.json" | cut -d'"' -f4)"
-RESP="$(curl -sf -X POST "https://$SERVER/api/register" \
+RESP="$(curl -sf --retry 2 --retry-delay 1 -X POST "https://$SERVER/api/register" \
   -H 'Content-Type: application/json' \
   -d "{\"username\":\"$USERNAME\",\"authToken\":\"$ACCOUNT_TOKEN\",\"token\":\"$PREV_TOKEN\"}")" \
   || die "registration failed — username taken, bad token, or server unreachable"
@@ -770,7 +770,7 @@ if [ "$WRITABLE" = 1 ]; then
 
   PREV_WRITE_TOKEN=""
   [ -f "$STATE_DIR/write_meta.json" ] && PREV_WRITE_TOKEN="$(grep -o '"revokeToken":"[^"]*"' "$STATE_DIR/write_meta.json" | cut -d'"' -f4)"
-  WRITE_RESP="$(curl -sf -X POST "https://$SERVER/api/register" \
+  WRITE_RESP="$(curl -sf --retry 2 --retry-delay 1 -X POST "https://$SERVER/api/register" \
     -H 'Content-Type: application/json' \
     -d "{\"username\":\"$WRITE_SLUG\",\"authToken\":\"$ACCOUNT_TOKEN\",\"token\":\"$PREV_WRITE_TOKEN\",\"unlisted\":true}")" \
     || die "registering the writable link failed"
