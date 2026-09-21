@@ -22,6 +22,10 @@ const LISTEN_PORT = parseInt(process.env.OPENGENT_GATEWAY_PORT || '8791', 10);
 const DATABASE_URL = process.env.DATABASE_URL;
 const REDIS_URL = process.env.REDIS_URL;
 const OPENGENT_DOMAIN = process.env.OPENGENT_DOMAIN;
+// When set, "/" redirects straight into this slug's live terminal instead
+// of the static homepage — the site itself as a running demo. Optional:
+// falls back to the homepage if unset or blank.
+const DEMO_SLUG = (process.env.OPENGENT_DEMO_SLUG || '').toLowerCase().trim();
 if (!DATABASE_URL) { console.error('DATABASE_URL not set'); process.exit(1); }
 if (!REDIS_URL) { console.error('REDIS_URL not set'); process.exit(1); }
 if (!OPENGENT_DOMAIN) { console.error('OPENGENT_DOMAIN not set'); process.exit(1); }
@@ -242,6 +246,15 @@ async function handleRequest(req, res) {
   const urlPath = req.url.split('?')[0];
 
   if (urlPath === '/' || urlPath === '') {
+    if (DEMO_SLUG) {
+      res.writeHead(302, { Location: `/${DEMO_SLUG}/` });
+      return res.end();
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(HOMEPAGE_HTML);
+  }
+
+  if (urlPath === '/home') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     return res.end(HOMEPAGE_HTML);
   }
