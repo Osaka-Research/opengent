@@ -71,6 +71,14 @@
     margin: 0 auto 2.6rem;
   }
   .sub b { color: var(--text); font-weight: 600; }
+  .sub code {
+    font-family: var(--mono);
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.05rem 0.35rem;
+    font-size: 0.9em;
+  }
 
   /* --- command --- */
   .cmd-row {
@@ -246,22 +254,6 @@
     line-height: 1.5;
     min-height: 2.7em;
   }
-  .story-footnote {
-    text-align: center;
-    color: var(--text-dimmer);
-    font-size: 0.78rem;
-    max-width: 44ch;
-    margin: 1.6rem auto 0;
-    line-height: 1.6;
-  }
-  .story-footnote code {
-    font-family: var(--mono);
-    background: var(--bg-soft);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 0.05rem 0.35rem;
-    font-size: 0.9em;
-  }
 
   /* --- works-with --- */
   .works {
@@ -366,8 +358,9 @@
   <div class="brand"><span class="prompt">&gt;_</span> tunl.ac</div>
 
   <h1>Share a terminal<br><span class="hl">like a Google Doc.</span></h1>
-  <p class="sub">No public IP, no port-forwarding, no account. Just a link —
-    <b>readable by anyone</b>, <b>writable by whoever you trust</b>.</p>
+  <p class="sub">Same mechanism works from <code>tmux send-keys</code> on your own
+    machine, or agent-to-agent — <b>Claude can hand GPT a link, GPT can hand
+    DeepSeek one back</b>. No shared platform needed, just a URL.</p>
 
   <!--
     Machine-readable, always in the raw HTML: an agent that fetches this
@@ -401,10 +394,6 @@
     </div>
     <p class="story-caption" id="story-caption">&nbsp;</p>
   </div>
-
-  <p class="story-footnote">Same mechanism works from <code>tmux send-keys</code>
-    on your own machine, or agent-to-agent — Claude can hand GPT a link,
-    GPT can hand DeepSeek one back. No shared platform needed, just a URL.</p>
 
   <div class="works">
     <div class="works-label">Just a terminal — works with whatever's driving it</div>
@@ -479,8 +468,6 @@
   // terminal — replaces the earlier "six unrelated scenes cycling" demo,
   // which had no through-line. Same link/session identity carries across
   // all three steps so it reads as one thing happening, not a slideshow.
-  // Bonus ideas (tmux, agent-to-agent) are a static footnote instead of
-  // competing full scenes — see .story-footnote in the HTML.
   (function () {
     const body = document.getElementById('story-body');
     const label = document.getElementById('story-label');
