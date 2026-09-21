@@ -743,5 +743,4 @@ if [ -n "$WRITE_SLUG" ]; then
     DRIVE_CMD="curl -sL $SERVER/i | bash -s -- type https://$SERVER/$WRITE_SLUG/ '$WHOAGENT_CMD'"
   fi
   printf '  %s\n' "$DRIVE_CMD"
-  show_qr "$DRIVE_CMD"
 fi
