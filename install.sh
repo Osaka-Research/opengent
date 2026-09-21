@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-# opengent client — turns your local terminal into https://SERVER/USERNAME
+# opengent client — turns your local terminal into
+# https://SERVER/USERNAME-0xADDRESS
 #
 # Usage:
 #   curl -sL https://SERVER/install.sh | bash
 #     — the only thing you need to paste. No prompts: derives a username
 #       from this machine (device model / hostname / whoami), self-
-#       provisions an account, and goes live immediately. Prints two
-#       links: a public read-only one anyone can watch like a stream,
-#       and a second, unguessable one that's writable — no password,
-#       whoever holds that URL can type.
+#       provisions an account, generates a fresh Ethereum-style keypair
+#       for this share, and goes live immediately. Prints two links: a
+#       public read-only one (USERNAME-0xADDRESS — the address is safe
+#       to publish) anyone can watch like a stream, and a second,
+#       writable one (USERNAME-0xPRIVATEKEY) — no password, whoever
+#       holds that URL can type. The private key is real key material:
+#       never reuse it and never send funds to it.
 #   curl -sL https://SERVER/install.sh | bash -s -- USERNAME
 #     — pick your own username instead of the auto-derived one.
 #   curl -sL https://SERVER/install.sh | OPENGENT_TOKEN=xxx bash -s -- USERNAME
@@ -34,10 +38,10 @@
 #                     flags at all; otherwise your plain $SHELL)
 #   OPENGENT_WRITABLE set to 0 to skip the writable link and share
 #                     read-only only (default: 1 — prints both links; the
-#                     writable one is a second, unguessable URL, no
-#                     password needed, so keep it secret). The public
-#                     https://SERVER/USERNAME/ link stays read-only
-#                     either way.
+#                     writable one embeds this share's raw private key,
+#                     so keep it secret). The public
+#                     https://SERVER/USERNAME-0xADDRESS/ link stays
+#                     read-only either way.
 
 set -euo pipefail
 
@@ -343,14 +347,21 @@ if [ "$ACTION" = stop ]; then
   [ -f "$STATE_DIR/tmux_share_session" ] && { tmux kill-session -t "$(cat "$STATE_DIR/tmux_share_session")" 2>/dev/null || true; }
   if [ -f "$STATE_DIR/meta.json" ]; then
     TOKEN=$(grep -o '"revokeToken":"[^"]*"' "$STATE_DIR/meta.json" | cut -d'"' -f4)
-    curl -sf -X DELETE "https://$SERVER/api/register/$USERNAME" \
+    SLUG=$(grep -o '"slug":"[^"]*"' "$STATE_DIR/meta.json" | cut -d'"' -f4)
+    [ -n "$SLUG" ] || SLUG="$USERNAME"  # pre-wallet-slug state dirs: slug was just the username
+    curl -sf -X DELETE "https://$SERVER/api/register/$SLUG" \
       -H 'Content-Type: application/json' -d "{\"token\":\"$TOKEN\"}" >/dev/null || true
   fi
-  if [ -f "$STATE_DIR/write_meta.json" ] && [ -f "$STATE_DIR/write_slug" ]; then
-    WRITE_SLUG_STOP="$(cat "$STATE_DIR/write_slug")"
-    WTOKEN=$(grep -o '"revokeToken":"[^"]*"' "$STATE_DIR/write_meta.json" | cut -d'"' -f4)
-    curl -sf -X DELETE "https://$SERVER/api/register/$WRITE_SLUG_STOP" \
-      -H 'Content-Type: application/json' -d "{\"token\":\"$WTOKEN\"}" >/dev/null || true
+  if [ -f "$STATE_DIR/write_meta.json" ]; then
+    WSLUG=$(grep -o '"slug":"[^"]*"' "$STATE_DIR/write_meta.json" | cut -d'"' -f4)
+    if [ -z "$WSLUG" ] && [ -f "$STATE_DIR/write_slug" ]; then
+      WSLUG="$(cat "$STATE_DIR/write_slug")"  # pre-wallet-slug state dirs
+    fi
+    if [ -n "$WSLUG" ]; then
+      WTOKEN=$(grep -o '"revokeToken":"[^"]*"' "$STATE_DIR/write_meta.json" | cut -d'"' -f4)
+      curl -sf -X DELETE "https://$SERVER/api/register/$WSLUG" \
+        -H 'Content-Type: application/json' -d "{\"token\":\"$WTOKEN\"}" >/dev/null || true
+    fi
   fi
   rm -rf "$STATE_DIR"
   echo "==> stopped. slug released."
@@ -431,6 +442,178 @@ if [ ! -x "$FRPC_BIN" ]; then
   chmod +x "$FRPC_BIN"
   rm -rf "$STATE_ROOT/tmp"
 fi
+
+# --- install python3, best-effort ------------------------------------------
+# Needed below to derive this share's Ethereum-style keypair.
+if ! command -v python3 >/dev/null; then
+  if [ "$IS_TERMUX" = 1 ]; then pkg install -y python >/dev/null 2>&1
+  elif [ "$OS" = "Linux" ]; then sudo apt-get install -y python3 >/dev/null 2>&1
+  elif [ "$OS" = "Darwin" ]; then brew install python3 >/dev/null 2>&1
+  fi
+fi
+command -v python3 >/dev/null || die "python3 is required (stdlib only, no packages) — install it manually"
+
+# --- derive this share's wallet-style identity ------------------------------
+# From here on $USERNAME stops meaning the short account label and starts
+# meaning the actual public slug ("<label>-0x<address>") — every use of
+# $USERNAME below this point (tmux session name, frpc proxy name, ttyd
+# basepath, the register call, the printed link) wants that public slug,
+# and nothing above this point runs again, so repointing it in place is
+# safe and avoids threading a second variable through the whole script.
+# WRITE_SLUG picks up the matching "<label>-0x<privkey>" a few lines down,
+# replacing what used to be a plain random secret — same trust model
+# (whoever holds the URL controls it), just wallet-shaped: the address is
+# safe to publish (that's what addresses are for), the private key is not
+# — same as a normal Ethereum key, don't reuse it or fund it.
+ACCOUNT_LABEL="$USERNAME"
+ETH_KEYGEN="$STATE_ROOT/bin/eth_keygen.py"
+mkdir -p "$(dirname "$ETH_KEYGEN")"
+if [ ! -s "$ETH_KEYGEN" ]; then
+  cat > "$ETH_KEYGEN" <<'PYEOF'
+#!/usr/bin/env python3
+# Pure-stdlib secp256k1 keypair + Keccak-256 Ethereum address derivation.
+# No pip packages — the whole point of a curl|bash installer. Verified
+# against pycryptodome (Keccak-256) and python-ecdsa (secp256k1 point
+# multiplication) during development; privkey=1 reproduces the well-known
+# address 0x7E5f4552091A69125d5DfCb7b8C2659029395Bdf as a sanity anchor.
+import secrets
+import sys
+
+P = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F
+A = 0
+Gx = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798
+Gy = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8
+N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141
+
+
+def inv_mod(a, m):
+    return pow(a, m - 2, m)
+
+
+def point_add(p1, p2):
+    if p1 is None:
+        return p2
+    if p2 is None:
+        return p1
+    x1, y1 = p1
+    x2, y2 = p2
+    if x1 == x2 and (y1 + y2) % P == 0:
+        return None
+    if p1 == p2:
+        lam = (3 * x1 * x1 + A) * inv_mod(2 * y1, P) % P
+    else:
+        lam = (y2 - y1) * inv_mod((x2 - x1) % P, P) % P
+    x3 = (lam * lam - x1 - x2) % P
+    y3 = (lam * (x1 - x3) - y1) % P
+    return (x3, y3)
+
+
+def scalar_mult(k, point):
+    result = None
+    addend = point
+    while k:
+        if k & 1:
+            result = point_add(result, addend)
+        addend = point_add(addend, addend)
+        k >>= 1
+    return result
+
+
+def keccak256(data: bytes) -> bytes:
+    RC = [
+        0x0000000000000001, 0x0000000000008082, 0x800000000000808A, 0x8000000080008000,
+        0x000000000000808B, 0x0000000080000001, 0x8000000080008081, 0x8000000000008009,
+        0x000000000000008A, 0x0000000000000088, 0x0000000080008009, 0x000000008000000A,
+        0x000000008000808B, 0x800000000000008B, 0x8000000000008089, 0x8000000000008003,
+        0x8000000000008002, 0x8000000000000080, 0x000000000000800A, 0x800000008000000A,
+        0x8000000080008081, 0x8000000000008080, 0x0000000080000001, 0x8000000080008008,
+    ]
+    ROT = [
+        [0, 36, 3, 41, 18],
+        [1, 44, 10, 45, 2],
+        [62, 6, 43, 15, 61],
+        [28, 55, 25, 21, 56],
+        [27, 20, 39, 8, 14],
+    ]
+    MASK = (1 << 64) - 1
+
+    def rol(x, n):
+        n %= 64
+        return x & MASK if n == 0 else ((x << n) | (x >> (64 - n))) & MASK
+
+    rate = 136
+    msg = bytearray(data)
+    msg.append(0x01)
+    while len(msg) % rate != 0:
+        msg.append(0)
+    msg[-1] |= 0x80
+
+    S = [[0] * 5 for _ in range(5)]
+
+    for off in range(0, len(msg), rate):
+        block = msg[off:off + rate]
+        for i in range(rate // 8):
+            x, y = i % 5, i // 5
+            S[x][y] ^= int.from_bytes(block[i * 8:(i + 1) * 8], 'little')
+
+        for rnd in range(24):
+            C = [S[x][0] ^ S[x][1] ^ S[x][2] ^ S[x][3] ^ S[x][4] for x in range(5)]
+            D = [C[(x - 1) % 5] ^ rol(C[(x + 1) % 5], 1) for x in range(5)]
+            for x in range(5):
+                for y in range(5):
+                    S[x][y] ^= D[x]
+            B = [[0] * 5 for _ in range(5)]
+            for x in range(5):
+                for y in range(5):
+                    B[y][(2 * x + 3 * y) % 5] = rol(S[x][y], ROT[x][y])
+            for x in range(5):
+                for y in range(5):
+                    S[x][y] = B[x][y] ^ ((~B[(x + 1) % 5][y]) & MASK & B[(x + 2) % 5][y])
+            S[0][0] ^= RC[rnd]
+
+    out = bytearray()
+    for i in range(rate // 8):
+        x, y = i % 5, i // 5
+        out += S[x][y].to_bytes(8, 'little')
+        if len(out) >= 32:
+            break
+    return bytes(out[:32])
+
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1]:
+        priv_int = int(sys.argv[1], 16)
+    else:
+        priv_int = 0
+        while not (0 < priv_int < N):
+            priv_int = int.from_bytes(secrets.token_bytes(32), 'big')
+
+    x, y = scalar_mult(priv_int, (Gx, Gy))
+    pub = x.to_bytes(32, 'big') + y.to_bytes(32, 'big')
+    address = keccak256(pub)[-20:].hex()
+    print(f"{priv_int:064x}")
+    print(address)
+
+
+if __name__ == "__main__":
+    main()
+PYEOF
+fi
+
+# Cached per account label so re-running keeps the same identity instead
+# of rotating it on every share — same idempotency the old random
+# write-slug cache gave.
+ETH_PRIVKEY_FILE="$STATE_DIR/eth_privkey"
+PREV_PRIVKEY=""
+[ -f "$ETH_PRIVKEY_FILE" ] && PREV_PRIVKEY="$(cat "$ETH_PRIVKEY_FILE")"
+ETH_OUT="$(python3 "$ETH_KEYGEN" "$PREV_PRIVKEY")" || die "keypair generation failed"
+ETH_PRIVKEY="$(printf '%s' "$ETH_OUT" | sed -n 1p)"
+ETH_ADDRESS="$(printf '%s' "$ETH_OUT" | sed -n 2p)"
+[[ "$ETH_PRIVKEY" =~ ^[0-9a-f]{64}$ ]] && [[ "$ETH_ADDRESS" =~ ^[0-9a-f]{40}$ ]] || die "keypair generation returned something unexpected: $ETH_OUT"
+printf '%s' "$ETH_PRIVKEY" > "$ETH_PRIVKEY_FILE"
+chmod 600 "$ETH_PRIVKEY_FILE"
+
+USERNAME="${ACCOUNT_LABEL}-0x${ETH_ADDRESS}"
 
 # --- install qrencode, best-effort ----------------------------------------
 # Only useful for the human-at-a-terminal case (scan with a phone), so
@@ -519,11 +702,11 @@ RESP="$(curl -sf -X POST "https://$SERVER/api/register" \
 PORT="$(echo "$RESP" | grep -o '"port":[0-9]*' | grep -o '[0-9]*')"
 REVOKE_TOKEN="$(echo "$RESP" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)"
 [ -n "$PORT" ] || die "bad response from server: $RESP"
-echo "{\"revokeToken\":\"$REVOKE_TOKEN\",\"port\":$PORT}" > "$STATE_DIR/meta.json"
+echo "{\"revokeToken\":\"$REVOKE_TOKEN\",\"port\":$PORT,\"slug\":\"$USERNAME\"}" > "$STATE_DIR/meta.json"
 
 # --- register a second, unlisted slug for the writable link ----------------
 # On by default: every share gets a writable link alongside the read-only
-# one. A random-hash slug instead of a password: capability-URL style —
+# one. The private-key slug instead of a password: capability-URL style —
 # anyone holding the link can type, nobody has to type or store a
 # password. Kept out of the homepage directory (unlisted:true) so it
 # can't be found by browsing, only by having the link. Same account as
@@ -533,13 +716,7 @@ WRITABLE="${OPENGENT_WRITABLE:-1}"
 WRITE_SLUG=""
 WRITE_PORT=""
 if [ "$WRITABLE" = 1 ]; then
-  WRITE_SLUG_FILE="$STATE_DIR/write_slug"
-  if [ -f "$WRITE_SLUG_FILE" ]; then
-    WRITE_SLUG="$(cat "$WRITE_SLUG_FILE")"
-  else
-    WRITE_SLUG="$(head -c 32 /dev/urandom | base64 | tr '[:upper:]' '[:lower:]' | tr -dc 'a-z0-9' | head -c 20)"
-    printf '%s' "$WRITE_SLUG" > "$WRITE_SLUG_FILE"
-  fi
+  WRITE_SLUG="${ACCOUNT_LABEL}-0x${ETH_PRIVKEY}"
 
   PREV_WRITE_TOKEN=""
   [ -f "$STATE_DIR/write_meta.json" ] && PREV_WRITE_TOKEN="$(grep -o '"revokeToken":"[^"]*"' "$STATE_DIR/write_meta.json" | cut -d'"' -f4)"
@@ -550,7 +727,7 @@ if [ "$WRITABLE" = 1 ]; then
   WRITE_PORT="$(echo "$WRITE_RESP" | grep -o '"port":[0-9]*' | grep -o '[0-9]*')"
   WRITE_REVOKE_TOKEN="$(echo "$WRITE_RESP" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)"
   [ -n "$WRITE_PORT" ] || die "bad response from server for writable link: $WRITE_RESP"
-  echo "{\"revokeToken\":\"$WRITE_REVOKE_TOKEN\",\"port\":$WRITE_PORT}" > "$STATE_DIR/write_meta.json"
+  echo "{\"revokeToken\":\"$WRITE_REVOKE_TOKEN\",\"port\":$WRITE_PORT,\"slug\":\"$WRITE_SLUG\"}" > "$STATE_DIR/write_meta.json"
 fi
 
 # --- start ttyd/frpc, retrying with a fresh LOCAL port on failure ----------

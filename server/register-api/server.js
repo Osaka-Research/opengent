@@ -18,7 +18,11 @@ const { createClient } = require('redis');
 
 const LISTEN_PORT = parseInt(process.env.OPENGENT_API_PORT || '8790', 10);
 const RESERVED_SLUGS = new Set(['api', 'admin', 'register', 'health', 'assets', 'static']);
-const SLUG_RE = /^[a-z0-9][a-z0-9-]{2,19}$/;
+// Upper bound wide enough for account-label slugs (short, human-picked) and
+// the longer wallet-derived slugs install.sh composes as
+// "<label>-0x<40-or-64-hex-chars>" (up to ~90 chars) — path-based routing,
+// not a DNS label, so there's no 63-char ceiling to respect here.
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{2,127}$/;
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const REDIS_URL = process.env.REDIS_URL;
@@ -235,7 +239,7 @@ const server = http.createServer((req, res) => {
 
         const slug = String(body.username || '').toLowerCase().trim();
         if (!SLUG_RE.test(slug)) {
-          return json(res, 400, { error: 'username must be 3-20 chars, lowercase letters/digits/hyphen, not starting with hyphen' });
+          return json(res, 400, { error: 'username/slug must be 3-128 chars, lowercase letters/digits/hyphen, not starting with hyphen' });
         }
         if (RESERVED_SLUGS.has(slug)) {
           return json(res, 409, { error: 'username reserved' });
@@ -319,7 +323,7 @@ const server = http.createServer((req, res) => {
 
         const username = String(body.username || '').toLowerCase().trim();
         if (!SLUG_RE.test(username)) {
-          return json(res, 400, { error: 'username must be 3-20 chars, lowercase letters/digits/hyphen, not starting with hyphen' });
+          return json(res, 400, { error: 'username/slug must be 3-128 chars, lowercase letters/digits/hyphen, not starting with hyphen' });
         }
         if (RESERVED_SLUGS.has(username)) {
           return json(res, 409, { error: 'username reserved' });

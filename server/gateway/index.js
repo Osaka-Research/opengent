@@ -102,7 +102,10 @@ Stop sharing:
 Source: https://github.com/Osaka-Research/opengent
 `;
 
-const SLUG_RE = /^[a-z0-9][a-z0-9-]{2,19}$/;
+// Kept in sync with register-api's SLUG_RE — must accept the long
+// wallet-derived slugs install.sh composes ("<label>-0x<hex>"), not just
+// short account labels.
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{2,127}$/;
 const CACHE_TTL_S = 3600; // safety net only — register-api invalidates this key explicitly on change
 
 const pool = new Pool({ connectionString: DATABASE_URL });
