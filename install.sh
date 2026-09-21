@@ -664,14 +664,24 @@ if [[ "$SHARE_CMD" != tmux\ attach* ]]; then
   SHARE_CMD="tmux attach -t $TMUX_SHARE_SESSION"
 fi
 
-# --- custom ttyd page title, so the browser tab reads the domain ----------
+# --- custom ttyd page: real title + a copy button -------------------------
 # ttyd's own default page title ("ttyd - Terminal") is a static asset;
 # `-t titleFixed=` only rewrites document.title after the client JS
 # connects, so the tab briefly flashes the default first. Fetch ttyd's
 # actual default page once (from the ttyd binary itself, so this tracks
-# whatever version is actually installed instead of a vendored copy)
-# and swap just the <title>. Best-effort — falls back to ttyd's default
-# on any failure, never blocks the share.
+# whatever version is actually installed instead of a vendored copy),
+# swap the <title>, and inject a floating Copy button.
+#
+# The button exists because xterm.js (what ttyd embeds) has no touch
+# selection support at all — click-drag copy works fine with a mouse,
+# but there's no way to select text with a finger on a phone (long-
+# standing upstream gap: xtermjs/xterm.js#5377, #3727, #1101). Rather
+# than patch xterm.js itself, the button reads window.term (ttyd
+# exposes the Terminal instance there) — the current selection if one
+# exists, else the whole visible screen — and copies it via the
+# Clipboard API, with a hidden-textarea execCommand fallback for
+# browsers without it. Best-effort throughout — falls back to ttyd's
+# plain default page on any failure, never blocks the share.
 CUSTOM_INDEX="$STATE_ROOT/ttyd-index-$SERVER.html"
 if [ ! -s "$CUSTOM_INDEX" ]; then
   TMP_PORT=$(( (RANDOM % 5000) + 20000 ))
@@ -682,7 +692,57 @@ if [ ! -s "$CUSTOM_INDEX" ]; then
   curl -s --max-time 2 "http://127.0.0.1:$TMP_PORT/" -o "$CUSTOM_INDEX.tmp" 2>/dev/null
   kill "$TMP_TTYD_PID" 2>/dev/null || true
   if [ -s "$CUSTOM_INDEX.tmp" ]; then
-    sed "s|<title>ttyd - Terminal</title>|<title>$SERVER</title>|" "$CUSTOM_INDEX.tmp" > "$CUSTOM_INDEX" 2>/dev/null
+    COPY_SNIPPET="$(cat <<'HTMLEOF'
+<button id="tunl-copy-btn" type="button" style="position:fixed;right:14px;bottom:14px;z-index:99999;background:#2f6fed;color:#fff;border:none;border-radius:999px;padding:10px 16px;font:600 13px system-ui,sans-serif;box-shadow:0 2px 10px rgba(0,0,0,.3);cursor:pointer;opacity:.85">Copy</button>
+<script>
+(function(){
+  function screenText(term){
+    var buf=term.buffer.active,lines=[];
+    for(var i=0;i<buf.length;i++){var line=buf.getLine(i);if(line)lines.push(line.translateToString(true));}
+    while(lines.length&&!lines[lines.length-1].trim())lines.pop();
+    return lines.join("\n");
+  }
+  function grab(){
+    var t=window.term;
+    if(!t)return "";
+    var sel=t.getSelection&&t.getSelection();
+    return (sel&&sel.length)?sel:screenText(t);
+  }
+  function flash(btn,label){var orig=btn.textContent;btn.textContent=label;setTimeout(function(){btn.textContent=orig;},1200);}
+  function fallbackCopy(text,btn){
+    var ta=document.createElement("textarea");
+    ta.value=text;ta.style.position="fixed";ta.style.left="-9999px";
+    document.body.appendChild(ta);ta.focus();ta.select();
+    try{document.execCommand("copy");flash(btn,"copied");}
+    catch(e){flash(btn,"copy failed");}
+    document.body.removeChild(ta);
+  }
+  document.addEventListener("DOMContentLoaded",function(){
+    var btn=document.getElementById("tunl-copy-btn");
+    if(!btn)return;
+    btn.addEventListener("click",function(){
+      var text=grab();
+      if(!text){flash(btn,"nothing to copy");return;}
+      if(navigator.clipboard&&navigator.clipboard.writeText){
+        navigator.clipboard.writeText(text).then(function(){flash(btn,"copied");}).catch(function(){fallbackCopy(text,btn);});
+      }else{
+        fallbackCopy(text,btn);
+      }
+    });
+  });
+})();
+</script>
+HTMLEOF
+)"
+    # `&` is special in bash's ${//} replacement text (means "the matched
+    # text", like sed) as of bash 5.2+ — escape it or "&&" in the snippet's
+    # JS silently turns into two copies of whatever it matched.
+    COPY_SNIPPET_ESC="${COPY_SNIPPET//&/\\&}"
+    PAGE="$(cat "$CUSTOM_INDEX.tmp")"
+    PAGE="${PAGE//<title>ttyd - Terminal<\/title>/<title>$SERVER<\/title>}"
+    PAGE="${PAGE//<\/body><\/html>/${COPY_SNIPPET_ESC}
+</body></html>}"
+    printf '%s' "$PAGE" > "$CUSTOM_INDEX" 2>/dev/null
   fi
   rm -f "$CUSTOM_INDEX.tmp"
 fi
