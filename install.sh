@@ -724,13 +724,354 @@ if [ ! -s "$CUSTOM_INDEX" ]; then
 HTMLEOF
 )"
     COPY_SNIPPET="${COPY_SNIPPET//__TUNL_SERVER__/$SERVER}"
-    # `&` is special in bash's ${//} replacement text (means "the matched
-    # text", like sed) as of bash 5.2+ — escape it or "&&" in the snippet's
-    # JS silently turns into two copies of whatever it matched.
-    COPY_SNIPPET_ESC="${COPY_SNIPPET//&/\\&}"
+
+    # On-screen terminal keyboard, styled and behaviorally modeled after
+    # Unexpected Keyboard (github.com/Julow/Unexpected-Keyboard) — an
+    # Android IME built for the same problem this solves here: a stock
+    # mobile keyboard has no Ctrl/Esc/Tab/arrows/Home/End/PgUp/PgDn, and a
+    # shell needs all of them. Same 4-row layout (letters ported from that
+    # project's latn_qwerty_us.xml, bottom row from its bottom_row.xml),
+    # same swipe-to-corner model, same latch/lock modifier colors — see
+    # that project's source for the values reused here (themes.xml's Dark
+    # style, Pointers.java's FLAG_P_LATCHABLE/FLAG_P_LOCKED behavior).
+    # Talks directly to ttyd's xterm.js: dispatches a synthetic
+    # KeyboardEvent at the `.xterm-helper-textarea` xterm.js already
+    # listens on (verified against ttyd's own bundle — no private API
+    # needed), or calls the `window.term.paste()` ttyd's wrapper exposes
+    # for plain printable text. Off by default (toggle button), and never
+    # focuses that textarea itself, so it never fights the OS keyboard.
+    KEYBOARD_SNIPPET="$(cat <<'KEYBOARDEOF'
+<style>
+#uk-toggle{position:fixed;right:10px;bottom:50px;z-index:99999;width:34px;height:34px;border-radius:50%;background:#262626;border:1px solid #404040;color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 6px 18px -6px rgba(0,0,0,.5)}
+#uk-toggle:active{transform:scale(0.95)}
+#uk-kb{position:fixed;left:0;right:0;bottom:0;z-index:99998;background:#1b1b1b;padding:4px 3px calc(4px + env(safe-area-inset-bottom));box-shadow:0 -8px 20px -8px rgba(0,0,0,.6)}
+#uk-kb[hidden]{display:none}
+.uk-row{display:flex;gap:2px;margin-bottom:2px}
+.uk-key{position:relative;flex:1;height:38px;background:#333;border-radius:5px;border-bottom:1.2px solid #404040;display:flex;align-items:center;justify-content:center;color:#fff;font:600 13px ui-monospace,Menlo,Consolas,monospace;touch-action:none;-webkit-user-select:none;user-select:none}
+.uk-key.uk-action{background:#262626}
+.uk-key.uk-wide{flex:1.6}
+.uk-key.uk-wider{flex:2.2}
+.uk-key.uk-pressed{background:#1b1b1b}
+.uk-key.uk-on{color:#3399ff}
+.uk-key.uk-locked{color:#33cc33}
+.uk-sub{position:absolute;font-size:8px;font-weight:400;color:#ccc;line-height:1;pointer-events:none}
+.uk-sub.uk-nw{top:2px;left:3px}
+.uk-sub.uk-ne{top:2px;right:3px}
+.uk-sub.uk-sw{bottom:2px;left:3px}
+.uk-sub.uk-se{bottom:2px;right:3px}
+.uk-sub.uk-n{top:1px;left:50%;transform:translateX(-50%)}
+.uk-sub.uk-s{bottom:1px;left:50%;transform:translateX(-50%)}
+.uk-sub.uk-hi{color:#3399ff;font-weight:700}
+</style>
+<div id="uk-toggle" title="terminal keyboard">&#9000;</div>
+<div id="uk-kb" hidden></div>
+<script>
+(function(){
+  "use strict";
+
+  // Special (non-printable) key definitions -> {key, code} for a real
+  // xterm.js-facing KeyboardEvent. Names match what fireValue() looks up.
+  var SPECIAL={
+    ESC:{key:"Escape",code:"Escape"},
+    TAB:{key:"Tab",code:"Tab"},
+    ENTER:{key:"Enter",code:"Enter"},
+    BACKSPACE:{key:"Backspace",code:"Backspace"},
+    DELETE:{key:"Delete",code:"Delete"},
+    UP:{key:"ArrowUp",code:"ArrowUp"},
+    DOWN:{key:"ArrowDown",code:"ArrowDown"},
+    LEFT:{key:"ArrowLeft",code:"ArrowLeft"},
+    RIGHT:{key:"ArrowRight",code:"ArrowRight"},
+    HOME:{key:"Home",code:"Home"},
+    END:{key:"End",code:"End"},
+    PAGEUP:{key:"PageUp",code:"PageUp"},
+    PAGEDOWN:{key:"PageDown",code:"PageDown"}
+  };
+
+  // Letter rows, ported from Unexpected Keyboard's latn_qwerty_us.xml.
+  // c = tap (center). n/ne/e/se/s/sw/w/nw = swipe in that compass
+  // direction. 'loc esc'/'loc tab' are hidden placeholders in the real
+  // app (used only by its "add key" customizer) — promoted to visible
+  // here since this keyboard exists specifically for terminal use.
+  var ROW1=[
+    {c:"q",ne:"1",se:"ESC"},
+    {c:"w",nw:"~",ne:"2",sw:"@"},
+    {c:"e",nw:"!",ne:"3",sw:"#"},
+    {c:"r",ne:"4",sw:"$"},
+    {c:"t",ne:"5",sw:"%"},
+    {c:"y",ne:"6",sw:"^"},
+    {c:"u",ne:"7",sw:"&"},
+    {c:"i",ne:"8",sw:"*"},
+    {c:"o",ne:"9",sw:"(",se:")"},
+    {c:"p",ne:"0"}
+  ];
+  var ROW2=[
+    {c:"a",nw:"TAB",ne:"`"},
+    {c:"s"},
+    {c:"d"},
+    {c:"f"},
+    {c:"g",ne:"-",sw:"_"},
+    {c:"h",ne:"=",sw:"+"},
+    {c:"j",se:"}",sw:"{"},
+    {c:"k",sw:"[",se:"]"},
+    {c:"l",ne:"|",sw:"\\"}
+  ];
+  var ROW3=[
+    {mod:"shift",label:"⇧",wide:true},
+    {c:"z"},
+    {c:"x"},
+    {c:"c",ne:"<",sw:"."},
+    {c:"v",ne:">",sw:","},
+    {c:"b",ne:"?",sw:"/"},
+    {c:"n",ne:":",sw:";"},
+    {c:"m",ne:"\"",sw:"'"},
+    {c:"BACKSPACE",label:"⌫",ne:"DELETE",wide:true}
+  ];
+
+  var mods={ctrl:false,alt:false,shift:false};
+  var lock={ctrl:false,alt:false,shift:false};
+  var lastTap={ctrl:0,alt:0,shift:0};
+
+  function ta(){ return document.querySelector(".xterm-helper-textarea"); }
+
+  function sendKeyEvent(opts){
+    var el=ta();
+    if(!el) return;
+    var base={key:"",code:"",ctrlKey:false,altKey:false,shiftKey:false,bubbles:true,cancelable:true};
+    for(var k in opts) base[k]=opts[k];
+    el.dispatchEvent(new KeyboardEvent("keydown",base));
+  }
+
+  function sendChar(ch){
+    if(window.term&&typeof window.term.paste==="function"){
+      window.term.paste(ch);
+    }else{
+      sendKeyEvent({key:ch,code:"Key"+ch.toUpperCase()});
+    }
+  }
+
+  function clearOneShot(){
+    ["ctrl","alt","shift"].forEach(function(name){
+      if(mods[name]&&!lock[name]) mods[name]=false;
+    });
+    renderMods();
+  }
+
+  function fireValue(val){
+    if(val==null) return;
+    if(SPECIAL[val]){
+      var base=SPECIAL[val];
+      sendKeyEvent({key:base.key,code:base.code,ctrlKey:mods.ctrl,altKey:mods.alt,shiftKey:mods.shift});
+      clearOneShot();
+      return;
+    }
+    if(mods.ctrl){
+      sendKeyEvent({key:val,code:"Key"+val.toUpperCase(),ctrlKey:true});
+    }else if(mods.alt){
+      sendKeyEvent({key:val,code:"Key"+val.toUpperCase(),altKey:true});
+    }else{
+      sendChar(mods.shift?val.toUpperCase():val);
+    }
+    clearOneShot();
+  }
+
+  function tapModifier(name){
+    var now=Date.now();
+    if(lock[name]){
+      lock[name]=false;mods[name]=false;
+    }else if(mods[name]){
+      if(now-lastTap[name]<350){lock[name]=true;}
+      else{mods[name]=false;}
+    }else{
+      mods[name]=true;
+    }
+    lastTap[name]=now;
+    renderMods();
+  }
+
+  var modKeyEls={};
+  function renderMods(){
+    ["ctrl","alt","shift"].forEach(function(name){
+      var el=modKeyEls[name];
+      if(!el) return;
+      el.classList.toggle("uk-on",mods[name]&&!lock[name]);
+      el.classList.toggle("uk-locked",lock[name]);
+    });
+  }
+
+  var DIRS=["e","se","s","sw","w","nw","n","ne"];
+  function angleToDir(dx,dy){
+    var deg=Math.atan2(dy,dx)*180/Math.PI;
+    deg=(deg+360)%360;
+    return DIRS[Math.round(deg/45)%8];
+  }
+
+  function labelFor(def,slot){
+    var v=slot==="c"?def.c:def[slot];
+    if(v==null) return "";
+    if(SPECIAL[v]) return v==="ESC"?"esc":v==="TAB"?"⇥":v;
+    return v;
+  }
+
+  function makeLetterKey(def){
+    var el=document.createElement("div");
+    el.className="uk-key"+(def.wide?" uk-wide":"");
+    if(def.mod){
+      el.classList.add("uk-action");
+      var lbl=document.createElement("span");
+      lbl.textContent=def.label;
+      el.appendChild(lbl);
+      modKeyEls[def.mod]=el;
+      el.addEventListener("touchstart",function(e){e.preventDefault();tapModifier(def.mod);},{passive:false});
+      return el;
+    }
+    if(def.c==="BACKSPACE") el.classList.add("uk-action");
+    var center=document.createElement("span");
+    center.textContent=def.label||def.c;
+    el.appendChild(center);
+    ["nw","ne","sw","se"].forEach(function(dir){
+      if(def[dir]==null) return;
+      var s=document.createElement("span");
+      s.className="uk-sub uk-"+dir;
+      s.textContent=labelFor(def,dir);
+      el.appendChild(s);
+    });
+
+    var state=null;
+    el.addEventListener("touchstart",function(e){
+      var t=e.touches[0];
+      state={x:t.clientX,y:t.clientY,dir:null};
+      el.classList.add("uk-pressed");
+      e.preventDefault();
+    },{passive:false});
+    el.addEventListener("touchmove",function(e){
+      if(!state) return;
+      var t=e.touches[0];
+      var dx=t.clientX-state.x,dy=t.clientY-state.y;
+      var dist=Math.hypot(dx,dy);
+      var THRESH=16;
+      var newDir=null;
+      if(dist>THRESH){
+        var dir=angleToDir(dx,dy);
+        if(def[dir]!=null) newDir=dir;
+      }
+      if(newDir!==state.dir){
+        el.querySelectorAll(".uk-sub").forEach(function(s){s.classList.remove("uk-hi");});
+        if(newDir){
+          var hi=el.querySelector(".uk-"+newDir);
+          if(hi) hi.classList.add("uk-hi");
+        }
+        state.dir=newDir;
+      }
+      e.preventDefault();
+    },{passive:false});
+    el.addEventListener("touchend",function(e){
+      el.classList.remove("uk-pressed");
+      if(!state) return;
+      var val=state.dir?def[state.dir]:(def.c===undefined?null:def.c);
+      state=null;
+      e.preventDefault();
+      fireValue(val);
+    },{passive:false});
+    el.addEventListener("touchcancel",function(){el.classList.remove("uk-pressed");state=null;});
+    return el;
+  }
+
+  // Modifier keys (mod set), directional keys (dirs set: swipe picks an
+  // entry, tap falls back to value), and plain action keys (value fires on
+  // tap) all share one touchstart/move/end flow for consistency with
+  // makeLetterKey — everything resolves on touchend, touchstart only
+  // tracks the start position and shows press feedback.
+  function makeActionKey(spec){
+    var el=document.createElement("div");
+    el.className="uk-key uk-action"+(spec.wide?" uk-wide":spec.wider?" uk-wider":"");
+    var lbl=document.createElement("span");
+    lbl.textContent=spec.label;
+    el.appendChild(lbl);
+    if(spec.mod){modKeyEls[spec.mod]=el;}
+
+    var state=null;
+    el.addEventListener("touchstart",function(e){
+      var t=e.touches[0];
+      state={x:t.clientX,y:t.clientY,dir:null};
+      el.classList.add("uk-pressed");
+      e.preventDefault();
+    },{passive:false});
+    el.addEventListener("touchmove",function(e){
+      if(!state||!spec.dirs) return;
+      var t=e.touches[0];
+      var dx=t.clientX-state.x,dy=t.clientY-state.y;
+      state.dir=Math.hypot(dx,dy)>16?angleToDir(dx,dy):null;
+      e.preventDefault();
+    },{passive:false});
+    el.addEventListener("touchend",function(e){
+      el.classList.remove("uk-pressed");
+      if(!state) return;
+      var dir=state.dir;
+      state=null;
+      e.preventDefault();
+      if(spec.mod){tapModifier(spec.mod);return;}
+      var val=(dir&&spec.dirs&&spec.dirs[dir])?spec.dirs[dir]:spec.value;
+      fireValue(val);
+    },{passive:false});
+    el.addEventListener("touchcancel",function(){el.classList.remove("uk-pressed");state=null;});
+    return el;
+  }
+
+  function buildRow(defs,maker){
+    var row=document.createElement("div");
+    row.className="uk-row";
+    defs.forEach(function(d){row.appendChild(maker(d));});
+    return row;
+  }
+
+  var kb=document.getElementById("uk-kb");
+  kb.appendChild(buildRow(ROW1,makeLetterKey));
+  kb.appendChild(buildRow(ROW2,makeLetterKey));
+  kb.appendChild(buildRow(ROW3,makeLetterKey));
+
+  // Bottom action row: Ctrl / Alt as latch-lock modifiers, Space (swipe
+  // left/right = cursor left/right), a 4-way nav cluster (cardinal =
+  // arrows, corners = Home/PgUp/End/PgDn — mirrors a physical nav
+  // cluster's layout, not reverse-engineered from the app's internal
+  // key-index numbering), Enter.
+  var row4=document.createElement("div");
+  row4.className="uk-row";
+  row4.appendChild(makeActionKey({mod:"ctrl",label:"Ctrl",wide:true}));
+  row4.appendChild(makeActionKey({mod:"alt",label:"Alt",wide:true}));
+  row4.appendChild(makeActionKey({value:" ",label:"space",wider:true,
+    dirs:{w:"LEFT",e:"RIGHT"}}));
+  row4.appendChild(makeActionKey({value:null,label:"↕",wide:true,
+    dirs:{n:"UP",s:"DOWN",e:"RIGHT",w:"LEFT",nw:"HOME",ne:"PAGEUP",sw:"END",se:"PAGEDOWN"}}));
+  row4.appendChild(makeActionKey({value:"ENTER",label:"⏎",wide:true}));
+  kb.appendChild(row4);
+
+  document.getElementById("uk-toggle").addEventListener("click",function(){
+    kb.hidden=!kb.hidden;
+  });
+})();
+</script>
+KEYBOARDEOF
+)"
+
+    # Both `&` and `\` are special in bash's ${//} replacement text (`&`
+    # means "the matched text", like sed; `\\` collapses to one `\`, and
+    # `\&` to a literal `&`) as of bash 5.2+ — so a snippet's JS needs
+    # every backslash doubled *before* every ampersand gets escaped
+    # (order matters: escaping & first would double the escaping
+    # backslash itself on the next pass). Skipping this silently turns
+    # "&&" into two copies of whatever the outer substitution matched,
+    # and any literal "\\" (e.g. a JS string's escaped backslash) into a
+    # single stray backslash that breaks the script.
+    escape_for_replacement() {
+      local s="${1//\\/\\\\}"
+      printf '%s' "${s//&/\\&}"
+    }
+    COPY_SNIPPET_ESC="$(escape_for_replacement "$COPY_SNIPPET")"
+    KEYBOARD_SNIPPET_ESC="$(escape_for_replacement "$KEYBOARD_SNIPPET")"
     PAGE="$(cat "$CUSTOM_INDEX.tmp")"
     PAGE="${PAGE//<title>ttyd - Terminal<\/title>/<title>$SERVER<\/title>}"
     PAGE="${PAGE//<\/body><\/html>/${COPY_SNIPPET_ESC}
+${KEYBOARD_SNIPPET_ESC}
 </body></html>}"
     printf '%s' "$PAGE" > "$CUSTOM_INDEX" 2>/dev/null
   fi
