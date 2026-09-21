@@ -684,16 +684,17 @@ if [ -n "${CLI_INSTALLED:-}" ] && command -v "$CLI_NAME" >/dev/null 2>&1; then
   printf '\n%s %s%s%s\n' "${C_DIM}next time, just run:${C_RESET}" "$C_BOLD" "$CLI_NAME" "$C_RESET"
 fi
 
+WHOAGENT_CMD='echo "agent: ${AI_AGENT:-none}"'
 if [ -n "$TMUX_SHARE_SESSION" ]; then
   printf '\n%s\n' "${C_DIM}drive it from here (no browser needed):${C_RESET}"
-  printf '  tmux send-keys -t %s '"'"'<command>'"'"' Enter\n' "$TMUX_SHARE_SESSION"
+  printf '  tmux send-keys -t %s '"'"'%s'"'"' Enter\n' "$TMUX_SHARE_SESSION" "$WHOAGENT_CMD"
   printf '  tmux capture-pane -t %s -p\n' "$TMUX_SHARE_SESSION"
 fi
 if [ -n "$WRITE_SLUG" ]; then
   printf '\n%s\n' "${C_DIM}drive it from anywhere else (same script, just a link):${C_RESET}"
   if [ -n "${CLI_INSTALLED:-}" ] && command -v "$CLI_NAME" >/dev/null 2>&1; then
-    printf '  %s type https://%s/%s/ '"'"'<command>'"'"'\n' "$CLI_NAME" "$SERVER" "$WRITE_SLUG"
+    printf '  %s type https://%s/%s/ '"'"'%s'"'"'\n' "$CLI_NAME" "$SERVER" "$WRITE_SLUG" "$WHOAGENT_CMD"
   else
-    printf '  curl -sL %s/i | bash -s -- type https://%s/%s/ '"'"'<command>'"'"'\n' "$SERVER" "$SERVER" "$WRITE_SLUG"
+    printf '  curl -sL %s/i | bash -s -- type https://%s/%s/ '"'"'%s'"'"'\n' "$SERVER" "$SERVER" "$WRITE_SLUG" "$WHOAGENT_CMD"
   fi
 fi
