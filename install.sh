@@ -65,10 +65,44 @@ spinner_stop() {
 }
 trap spinner_stop EXIT
 
+# Walks the process ancestry looking for a known agent binary as a parent
+# process (claude, codex, cursor-agent, aider, gemini, ...) — catches a
+# shell driven by an agent even when no env var was ever exported into it
+# (e.g. a plain bash child process with a clean environment). Uses /proc
+# on Linux/Termux; falls back to `ps` where /proc isn't available (macOS).
+detect_agent_by_proctree() {
+  local pid="${PPID:-}" depth=0 name
+  [ -n "$pid" ] || return
+  while [ -n "$pid" ] && [ "$pid" != 0 ] && [ "$pid" != 1 ] && [ "$depth" -lt 12 ]; do
+    if [ -r "/proc/$pid/cmdline" ]; then
+      name="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | awk '{print $1}')"
+    else
+      name="$(ps -o comm= -p "$pid" 2>/dev/null | awk '{print $1}')"
+    fi
+    name="$(basename "${name:-}" 2>/dev/null)"
+    case "$name" in
+      claude*) printf claude; return ;;
+      codex*) printf codex; return ;;
+      cursor*) printf cursor; return ;;
+      aider*) printf aider; return ;;
+      gemini*) printf gemini; return ;;
+    esac
+    if [ -r "/proc/$pid/stat" ]; then
+      pid="$(awk '{print $4}' "/proc/$pid/stat" 2>/dev/null)"
+    else
+      pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')"
+    fi
+    depth=$((depth + 1))
+  done
+  printf ''
+}
+
 # Detects which AI coding agent (if any) is driving this shell, so the
 # auto-derived username/link can carry that instead of a bare device name.
-# Prefers the `agenthint` CLI if installed; falls back to the same env-var
-# checks inline, so a fresh `curl | bash` machine without it still works.
+# Prefers the `agenthint` CLI if installed, then the same env-var checks
+# inline (so a fresh `curl | bash` machine without it still works), then
+# falls back to a process-ancestry walk — catches the agent even with no
+# env var exported into this particular shell.
 detect_agent_tag() {
   if command -v agenthint >/dev/null 2>&1; then
     local a
@@ -81,7 +115,7 @@ detect_agent_tag() {
   if [ -n "${CURSOR_TRACE_ID:-}" ] || [ -n "${CURSOR_AGENT:-}" ]; then printf cursor; return; fi
   if [ -n "${AIDER_MODEL:-}" ] || [ -n "${AIDER_CHAT_HISTORY_FILE:-}" ]; then printf aider; return; fi
   if [ -n "${GEMINI_CLI:-}" ]; then printf gemini; return; fi
-  printf ''
+  detect_agent_by_proctree
 }
 
 # Computed once: tmux new-session inherits environment from whenever the
