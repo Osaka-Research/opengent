@@ -163,6 +163,79 @@ sudo cp -r server/register-api/. /opt/opengent/register-api/
 sudo systemctl restart opengent-gateway opengent-api
 ```
 
+**Before pulling on the box, check for uncommitted hotfixes first** —
+`git status` in whatever clone `setup.sh` used. The running `/opt/opengent`
+copy has drifted from git before (edits made directly on the box and never
+committed/pushed): as of 2026-09-21 the live copy had fixes to
+`create-user.sh` (printed URL), `register-api/schema.sql` (dropped the
+`unlisted` column + `control_requests` table left over from a removed
+feature — see "request-control" below), and a `homepage.html` copy
+rewrite. A plain `git pull` over uncommitted drift risks silently
+reverting real production fixes. Safer sequence: diff the live files
+against the repo, pull whatever's only-on-the-box into a commit first,
+*then* layer your change on top and deploy — don't just overwrite
+`/opt/opengent` from a stale or diverged clone. Prefer deploying from a
+fresh `git clone` into a scratch dir rather than reusing whatever
+clone happens to be sitting in `/tmp` on the box — it may be stale,
+checked out at an old commit, or carry someone else's abandoned
+uncommitted draft (all three have happened).
+
+### Where things actually run
+
+- **Gateway/relay box**: tagged `opengent-gateway` in EC2 (see the AWS
+  lookup above). Runs frps, Caddy, register-api, and the gateway —
+  server-side only. It does **not** run any opengent *client* (no
+  ttyd/frpc process, no `~/.opengent` state) — don't go looking for a
+  demo terminal's files there.
+- **The live homepage demo terminal** (`OPENGENT_DEMO_SLUG` env var on
+  `opengent-gateway`, currently `tunldemo-0x767214fc...`): runs as an
+  ordinary client share, but on a *different* EC2 box than the gateway —
+  the one tagged `Name=terminal-directory` (unrelated project running on
+  the same box; the `tunldemo` Linux user is opengent-specific). SSH key
+  `~/.ssh/aws-terminal-directory`, user `ubuntu`. Everything lives under
+  `/home/tunldemo/.opengent/` (needs `sudo -u tunldemo` to read/write —
+  `ubuntu` has no direct access to that home dir). Two accounts run
+  there: `tunldemo` (the one linked from the homepage) and
+  `tunldemo-inner` — both sets of ttyd processes (public read-only +
+  private writable, ×2 accounts = 4 ttyd processes) attach the **same**
+  single tmux session, `opengent-tunldemo-0x767214fc...`, so it's really
+  one shared terminal exposed under multiple slugs, not two independent
+  demos.
+  - **The demo's writable link is deliberately public** — same one for
+    every visitor, not a per-viewer secret like a real user's writable
+    link is. A button on the ttyd page itself links straight to it (see
+    below), and it's reset on a timer instead of gated by request/grant,
+    precisely because it's a shared sandbox, not a real account — this
+    is the "different, lower-stakes case" the security notes above call
+    out, not a precedent for real shares.
+  - **On-page "start typing here" button**: injected directly into
+    `/home/tunldemo/.opengent/ttyd-index-tunl.ac.html` on that box (a
+    small fixed-position link to the writable URL) — this is a
+    hand-maintained file on that one box, **not** part of `install.sh`'s
+    template and not tracked in this repo (`install.sh`'s own
+    double-click-to-copy injection, further up this file, is the
+    general product feature; this button is demo-only, added on top of
+    it). If that file ever gets regenerated (delete it and it's rebuilt
+    fresh from ttyd's default page on the next `install.sh` run — see
+    `install.sh`'s `CUSTOM_INDEX` logic), the button has to be
+    re-injected by hand.
+  - **Auto-reset every 15 minutes**: `tunldemo-reset.timer` (systemd,
+    installed directly on the `terminal-directory` box, not in this
+    repo) runs `/usr/local/bin/tunldemo-reset`, which does
+    `tmux respawn-window -k` + `tmux clear-history` on that one session.
+    Keeps ttyd/frpc attached throughout (no viewer-visible disconnect),
+    just wipes the shell back to a clean prompt. Check status with
+    `systemctl status tunldemo-reset.timer` on that box.
+  - If this demo ever needs rebuilding from scratch: re-run `install.sh`
+    on a box you control with `tunldemo` as the account label, repoint
+    `OPENGENT_DEMO_SLUG` on `opengent-gateway` at the new public slug,
+    and redo the two customizations above (they don't survive a fresh
+    install).
+- When `OPENGENT_DEMO_SLUG` is set, `/` redirects (302) straight into
+  that live terminal — the static `homepage.html` (with the marketing
+  copy, install command, demo animation, etc.) is only reachable at
+  `/home` while that's active, not at `/`.
+
 ## Client setup (per user)
 
 See the one-liner at the top. Requires `curl`, `tar`, and either `ttyd`
@@ -239,6 +312,18 @@ CLI flow above.
   Admin-issued accounts (`create-user.sh`) aren't shared and can be
   deactivated (`UPDATE users SET active = false ...`) or given a higher
   `max_slugs` without touching anyone else's.
+- **"Request control" (viewer asks to type, owner grants) was built,
+  shipped, then deliberately reverted** — it let a read-only viewer
+  request write access from inside the page instead of needing the
+  secret writable link. Reverted because it regressed the safe default:
+  the whole point of splitting public/private into two separate links is
+  that escalating from read to write requires the secret URL, not a
+  button on the public page. The `control_requests` table and its
+  `unlisted` column companion are gone from `schema.sql`. Don't re-add
+  an in-page "start typing" / "request access" control without treating
+  it as a real security-policy change, not a UI tweak — confirm intent
+  explicitly first. A one-off demo terminal you don't mind strangers
+  touching is a different, lower-stakes case; a real user's share is not.
 
 ## License
 
