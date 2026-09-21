@@ -123,6 +123,46 @@ Postgres — register-api picks up the new node automatically, no restart.
 The gateway reaches every node's tunnel ports over the private network
 (never the public internet), so all nodes must share one.
 
+## AWS deployment
+
+Relay nodes run on EC2, provisioned via `server/setup.sh` /
+`server/add-relay-node.sh`. Nodes are tagged `Name=opengent-gateway` (node
+1, runs the full stack) or `Name=opengent-relay-*` (added capacity, frps
+only) — look them up by tag instead of hardcoding instance IDs, so this
+stays valid across accounts/regions and as nodes are added:
+
+```
+aws ec2 describe-instances \
+  --filters "Name=tag:Name,Values=opengent-gateway,opengent-relay-*" \
+  --query 'Reservations[].Instances[].{ID:InstanceId,Name:Tags[?Key==`Name`]|[0].Value,IP:PublicIpAddress,State:State.Name}' \
+  --output table
+```
+
+Key pair and SSH user are whatever you passed/left default in
+`setup.sh`/`add-relay-node.sh` for that box (default AMI user is usually
+`ubuntu`). SSH in once you have the IP from the lookup above:
+
+```
+ssh -i ~/.ssh/<your-key> ubuntu@<public-ip>
+```
+
+### Redeploying after a code change
+
+The gateway (`server/gateway/index.js`) reads `install.sh` into memory
+**once at process start** (`fs.readFileSync` at module load) to serve it
+at `/i` and `/install.sh`. A `git push` alone does **not** update what
+`curl .../i | bash` serves on a running box — pull and restart there too:
+
+```
+ssh -i ~/.ssh/<your-key> ubuntu@<public-ip>
+cd <path to the clone setup.sh was run from>
+sudo git pull
+sudo cp install.sh /opt/opengent/install.sh
+sudo cp -r server/gateway/. /opt/opengent/gateway/
+sudo cp -r server/register-api/. /opt/opengent/register-api/
+sudo systemctl restart opengent-gateway opengent-api
+```
+
 ## Client setup (per user)
 
 See the one-liner at the top. Requires `curl`, `tar`, and either `ttyd`
