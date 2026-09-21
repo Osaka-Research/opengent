@@ -65,16 +65,51 @@ spinner_stop() {
 }
 trap spinner_stop EXIT
 
+# Detects which AI coding agent (if any) is driving this shell, so the
+# auto-derived username/link can carry that instead of a bare device name.
+# Prefers the `agenthint` CLI if installed; falls back to the same env-var
+# checks inline, so a fresh `curl | bash` machine without it still works.
+detect_agent_tag() {
+  if command -v agenthint >/dev/null 2>&1; then
+    local a
+    a="$(agenthint --json 2>/dev/null | sed -n 's/.*"agent":"\([^"]*\)".*/\1/p')"
+    [ -n "$a" ] && { printf '%s' "$a" | cut -d- -f1 | cut -d_ -f1; return; }
+  fi
+  if [ -n "${AI_AGENT:-}" ]; then printf '%s' "$AI_AGENT" | cut -d- -f1 | cut -d_ -f1; return; fi
+  if [ -n "${CLAUDECODE:-}" ] || [ -n "${CLAUDE_CODE_ENTRYPOINT:-}" ]; then printf claude; return; fi
+  if [ -n "${CODEX_SANDBOX:-}" ] || [ -n "${CODEX_CI:-}" ] || [ -n "${CODEX_THREAD_ID:-}" ]; then printf codex; return; fi
+  if [ -n "${CURSOR_TRACE_ID:-}" ] || [ -n "${CURSOR_AGENT:-}" ]; then printf cursor; return; fi
+  if [ -n "${AIDER_MODEL:-}" ] || [ -n "${AIDER_CHAT_HISTORY_FILE:-}" ]; then printf aider; return; fi
+  if [ -n "${GEMINI_CLI:-}" ]; then printf gemini; return; fi
+  printf ''
+}
+
 # Turns this machine's own identity (Termux device model, hostname, or
 # whoami — whichever resolves first) into a valid slug, so a bare
 # `curl | bash` can self-provision and go live with no prompt at all.
+# When an AI agent is detected driving the shell, its short name is
+# appended (e.g. `pixel7-claude`) so the resulting link/username shows
+# which agent is behind it at a glance.
 auto_base_username() {
   local raw=""
   [ -n "${TERMUX_VERSION:-}" ] && raw="$(getprop ro.product.model 2>/dev/null || true)"
   [ -n "$raw" ] || raw="$(hostname 2>/dev/null || true)"
   [ -n "$raw" ] || raw="$(whoami 2>/dev/null || true)"
   [ -n "$raw" ] || raw="guest"
-  raw="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-16)"
+  raw="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')"
+
+  local agent
+  agent="$(detect_agent_tag | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//' | cut -c1-8)"
+
+  if [ -n "$agent" ]; then
+    local base_len=$((16 - 1 - ${#agent}))
+    [ "$base_len" -lt 3 ] && base_len=3
+    raw="$(printf '%s' "$raw" | cut -c1-"$base_len")-$agent"
+  else
+    raw="$(printf '%s' "$raw" | cut -c1-16)"
+  fi
+
+  raw="$(printf '%s' "$raw" | sed -E 's/^-+//; s/-+$//')"
   while [ "${#raw}" -lt 3 ]; do raw="${raw}0"; done
   printf '%s' "$raw"
 }
