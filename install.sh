@@ -90,6 +90,8 @@ detect_agent_by_proctree() {
       cursor*) printf cursor; return ;;
       aider*) printf aider; return ;;
       gemini*) printf gemini; return ;;
+      opencode*) printf opencode; return ;;
+      amp*) printf amp; return ;;
     esac
     if [ -r "/proc/$pid/stat" ]; then
       pid="$(awk '{print $4}' "/proc/$pid/stat" 2>/dev/null)"
@@ -114,11 +116,24 @@ detect_agent_tag() {
     [ -n "$a" ] && { printf '%s' "$a" | cut -d- -f1 | cut -d_ -f1; return; }
   fi
   if [ -n "${AI_AGENT:-}" ]; then printf '%s' "$AI_AGENT" | cut -d- -f1 | cut -d_ -f1; return; fi
-  if [ -n "${CLAUDECODE:-}" ] || [ -n "${CLAUDE_CODE_ENTRYPOINT:-}" ]; then printf claude; return; fi
-  if [ -n "${CODEX_SANDBOX:-}" ] || [ -n "${CODEX_CI:-}" ] || [ -n "${CODEX_THREAD_ID:-}" ]; then printf codex; return; fi
+  if [ -n "${CLAUDECODE:-}" ] || [ -n "${CLAUDE_CODE:-}" ] || [ -n "${CLAUDE_CODE_ENTRYPOINT:-}" ] || [ -n "${CLAUDECODE_CWD:-}" ]; then printf claude; return; fi
+  if [ -n "${CODEX_SANDBOX:-}" ] || [ -n "${CODEX_CI:-}" ] || [ -n "${CODEX_THREAD_ID:-}" ] || [ -n "${CODEX_HOME:-}" ] || [ -n "${CODEX_USER_AGENT:-}" ]; then printf codex; return; fi
   if [ -n "${CURSOR_TRACE_ID:-}" ] || [ -n "${CURSOR_AGENT:-}" ]; then printf cursor; return; fi
   if [ -n "${AIDER_MODEL:-}" ] || [ -n "${AIDER_CHAT_HISTORY_FILE:-}" ]; then printf aider; return; fi
   if [ -n "${GEMINI_CLI:-}" ]; then printf gemini; return; fi
+  if [ -n "${AUGMENT_AGENT:-}" ]; then printf augment; return; fi
+  if [ -n "${AMP_CURRENT_THREAD_ID:-}" ]; then printf amp; return; fi
+  if [ -n "${OPENCODE_CLIENT:-}" ] || [ -n "${OPENCODE:-}" ]; then printf opencode; return; fi
+  if [ -n "${COPILOT_MODEL:-}" ] || [ -n "${COPILOT_CLI:-}" ] || [ -n "${COPILOT_ALLOW_ALL:-}" ] || [ -n "${COPILOT_GITHUB_TOKEN:-}" ]; then printf copilot; return; fi
+  if [ -n "${ANTIGRAVITY_AGENT:-}" ]; then printf antigravity; return; fi
+  if [ -n "${PI_CODING_AGENT:-}" ]; then printf pi; return; fi
+  if [ -n "${KIRO_AGENT_PATH:-}" ]; then printf kiro; return; fi
+  if [ -n "${WINDSURF_AGENT:-}" ]; then printf windsurf; return; fi
+  if [ -n "${CLINE_AGENT:-}" ]; then printf cline; return; fi
+  if [ -n "${ROO_CODE_AGENT:-}" ] || [ -n "${ROO_CODE:-}" ]; then printf roo; return; fi
+  if [ -n "${KILOCODE_AGENT:-}" ]; then printf kilocode; return; fi
+  if [ -n "${OPENCLAW_AGENT:-}" ]; then printf openclaw; return; fi
+  if [ -n "${REPL_ID:-}" ]; then printf replit; return; fi
   detect_agent_by_proctree
 }
 
